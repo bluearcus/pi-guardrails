@@ -1,6 +1,6 @@
 # pi-guardrails
 
-Public Pi extension package providing security hooks for Pi: file protection policies, workspace path access control, dangerous-command confirmation, a classifier decision delegate, and a Herdr prompt adapter. People depend on this, so treat the public API as backwards-compatibility-sensitive.
+Public Pi extension package providing security hooks for Pi: file protection policies, workspace path access control, dangerous-command confirmation, a model-backed decision delegate (Pi classifier models or cloud chat models), and a Herdr prompt adapter. People depend on this, so treat the public API as backwards-compatibility-sensitive.
 
 Pi is pre-1.0.0, so breaking changes can happen between Pi versions. This extension must stay up to date with Pi or things will break.
 
@@ -21,5 +21,13 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
 
 - Adding, updating, or removing default policy rules, default permission gate patterns, or example presets: `src/shared/config/defaults.ts` and `extensions/guardrails/commands/settings/examples.ts` are the source of truth. Update `schema.json` with `pnpm gen:schema` if config types changed.
 - Update `README.md` when public behavior, commands, or the discovery flow change.
-- Read and update `docs/decision-delegation.md` when changing what reaches delegates, the delegate contract, or the classifier.
+- Read and update `docs/decision-delegation.md` when changing what reaches delegates, the delegate contract, or the reviewer (classifier or chat path).
 - Run `pnpm changeset` before committing user-facing changes: `patch` for bug fixes, `minor` for new features/hooks, `major` for breaking changes.
+
+## Fork
+
+This checkout is a fork. `origin` is the fork, `upstream` is `aliou/pi-guardrails`.
+
+- `pnpm upstream:check` (or `scripts/upstream-check.sh`) reports upstream commits this fork has not merged, and exits nonzero when there are any.
+- `.github/workflows/upstream-sync.yml` opens one issue on GitHub when upstream is ahead.
+- `tools/upstream-watch.ts` is a personal Pi extension that reports the same thing inside Pi. It is not part of the package manifest, so package users never load it.
