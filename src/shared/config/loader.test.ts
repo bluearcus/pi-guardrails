@@ -477,6 +477,7 @@ describe("delegation and classifier resolution", () => {
     expect(config.classifier).toEqual({
       models: ["typesafe/jev-latest"],
       strategy: "fallback",
+      chat: { maxTokens: 1024, reasoning: "off", instructions: "" },
     });
   });
 
@@ -485,6 +486,58 @@ describe("delegation and classifier resolution", () => {
       classifier: { models: ["cfm/clef", " ", 3] },
     });
     expect(config.classifier.models).toEqual(["cfm/clef"]);
+  });
+
+  it.each([
+    [256, 256],
+    [1024.6, 1025],
+    [120000, 8192],
+    [0, 1024],
+    [-4, 1024],
+    ["lots", 1024],
+    [undefined, 1024],
+  ])(
+    "bounds classifier.chat.maxTokens %j to %j",
+    async (maxTokens, expected) => {
+      const config = await load(
+        `/tmp/pi-chat-max-tokens-${JSON.stringify(maxTokens)}`,
+        { classifier: { chat: { maxTokens } } },
+      );
+      expect(config.classifier.chat.maxTokens).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["low", "low"],
+    ["off", "off"],
+    ["ultrathink", "off"],
+    [42, "off"],
+    [undefined, "off"],
+  ])(
+    "resolves classifier.chat.reasoning %j to %j",
+    async (reasoning, expected) => {
+      const config = await load(
+        `/tmp/pi-chat-reasoning-${JSON.stringify(reasoning)}`,
+        { classifier: { chat: { reasoning } } },
+      );
+      expect(config.classifier.chat.reasoning).toBe(expected);
+    },
+  );
+
+  it("trims chat review instructions and drops non-strings", async () => {
+    const trimmed = await load("/tmp/pi-chat-instructions", {
+      classifier: {
+        chat: { instructions: "  never write outside the repo  " },
+      },
+    });
+    expect(trimmed.classifier.chat.instructions).toBe(
+      "never write outside the repo",
+    );
+
+    const ignored = await load("/tmp/pi-chat-instructions-number", {
+      classifier: { chat: { instructions: 7 } },
+    });
+    expect(ignored.classifier.chat.instructions).toBe("");
   });
 
   it.each([

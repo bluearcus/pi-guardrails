@@ -1,5 +1,23 @@
 import pkg from "../../../package.json" with { type: "json" };
-import type { ResolvedConfig } from "./types";
+import type { ChatReviewReasoning, ResolvedConfig } from "./types";
+
+/** Thinking levels a chat review request can ask for. */
+export const CHAT_REVIEW_REASONING_LEVELS: readonly ChatReviewReasoning[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+];
+
+/** Output limit ceiling for a chat review request. */
+export const MAX_CHAT_REVIEW_MAX_TOKENS = 8192;
+
+export const DEFAULT_CHAT_REVIEW = {
+  maxTokens: 1024,
+  reasoning: "off" as ChatReviewReasoning,
+  instructions: "",
+};
 
 export const DEFAULT_CONFIG: ResolvedConfig = {
   version: pkg.version,
@@ -17,6 +35,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
   classifier: {
     models: ["typesafe/jev-latest"],
     strategy: "fallback",
+    chat: { ...DEFAULT_CHAT_REVIEW },
   },
   pathAccess: {
     mode: "ask",

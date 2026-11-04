@@ -5,9 +5,19 @@ import {
 } from "@aliou/pi-utils-settings";
 import pkg from "../../../package.json" with { type: "json" };
 import type { AllowedPath } from "../../core/paths/path";
-import { DEFAULT_CONFIG } from "./defaults";
+import {
+  CHAT_REVIEW_REASONING_LEVELS,
+  DEFAULT_CHAT_REVIEW,
+  DEFAULT_CONFIG,
+  MAX_CHAT_REVIEW_MAX_TOKENS,
+} from "./defaults";
 import { migrations } from "./migration";
-import type { GuardrailsConfig, PolicyRule, ResolvedConfig } from "./types";
+import type {
+  ChatReviewReasoning,
+  GuardrailsConfig,
+  PolicyRule,
+  ResolvedConfig,
+} from "./types";
 
 class GuardrailsConfigLoader extends ConfigLoader<
   GuardrailsConfig,
@@ -144,6 +154,25 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
               typeof model === "string" && model.trim() !== "",
           )
         : [...DEFAULT_CONFIG.classifier.models];
+
+      const chat = resolved.classifier.chat;
+      const requestedMaxTokens = chat?.maxTokens;
+      const maxTokens =
+        typeof requestedMaxTokens === "number" &&
+        Number.isFinite(requestedMaxTokens) &&
+        requestedMaxTokens > 0
+          ? Math.min(Math.round(requestedMaxTokens), MAX_CHAT_REVIEW_MAX_TOKENS)
+          : DEFAULT_CHAT_REVIEW.maxTokens;
+      const reasoning = CHAT_REVIEW_REASONING_LEVELS.includes(
+        chat?.reasoning as ChatReviewReasoning,
+      )
+        ? (chat?.reasoning as ChatReviewReasoning)
+        : DEFAULT_CHAT_REVIEW.reasoning;
+      const instructions =
+        typeof chat?.instructions === "string"
+          ? chat.instructions.trim()
+          : DEFAULT_CHAT_REVIEW.instructions;
+      resolved.classifier.chat = { maxTokens, reasoning, instructions };
 
       return resolved;
     },

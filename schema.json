@@ -130,7 +130,7 @@
         },
         "classifier": {
           "$ref": "#/definitions/ClassifierConfig",
-          "description": "Built-in classifier delegate. Enable with `features.classifier`."
+          "description": "Built-in model reviewer (classifier or chat models). Enable with `features.classifier`."
         },
         "permissionGate": {
           "type": "object",
@@ -370,11 +370,15 @@
           "items": {
             "type": "string"
           },
-          "description": "Classifier models as `provider/model` (e.g. `typesafe/jev-latest`). The first `/` separates the provider from the model id."
+          "description": "Reviewer models as `provider/model` (e.g. `typesafe/jev-latest`, `google/gemini-3.1-flash-lite`). The first `/` separates the provider from the model id. A model the catalogue lists as a classifier answers through Pi's classify API; any other model is asked as a chat model."
         },
         "strategy": {
           "$ref": "#/definitions/ClassifierStrategy",
           "description": "How to use several models. Default: \"fallback\"."
+        },
+        "chat": {
+          "$ref": "#/definitions/ChatReviewConfig",
+          "description": "Settings for models asked as chat models."
         }
       },
       "additionalProperties": false
@@ -386,7 +390,37 @@
         "random",
         "consensus"
       ],
-      "description": "How the built-in classifier delegate uses its models.\n- `fallback`: try models in order; the first one that answers decides.\n- `random`: like fallback, starting from a random model each time.\n- `consensus`: ask every model; any block blocks, all must allow to allow,   anything else asks you."
+      "description": "How the built-in model reviewer uses its models.\n- `fallback`: try models in order; the first one that answers decides.\n- `random`: like fallback, starting from a random model each time.\n- `consensus`: ask every model; any block blocks, all must allow to allow,   anything else asks you."
+    },
+    "ChatReviewConfig": {
+      "type": "object",
+      "properties": {
+        "maxTokens": {
+          "type": "number",
+          "description": "Output limit for the review request. Default: 1024, capped at 8192."
+        },
+        "reasoning": {
+          "$ref": "#/definitions/ChatReviewReasoning",
+          "description": "Thinking level for the review request. Default: \"off\" — one structured judgement, fast."
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Extra rubric text appended to the review prompt, for project-specific rules."
+        }
+      },
+      "additionalProperties": false,
+      "description": "How chat (general LLM) models are asked. Classifier models keep Pi's classify API and ignore these settings."
+    },
+    "ChatReviewReasoning": {
+      "type": "string",
+      "enum": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "description": "Thinking level for a chat review request. Providers without thinking ignore it."
     },
     "DangerousPattern": {
       "type": "object",

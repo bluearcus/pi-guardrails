@@ -58,11 +58,21 @@ const FEATURE_UI: Record<
   classifier: {
     label: "Classifier",
     description:
-      "Let classifier models allow, block, or escalate actions that would prompt you",
+      "Let reviewer models (Pi classifier or cloud chat) allow, block, or escalate actions that would prompt you",
   },
 };
 
 const DELEGATION_TIMEOUTS_MS = ["5000", "10000", "20000", "30000"];
+
+const CHAT_REVIEW_REASONING_VALUES = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+];
+
+const CHAT_REVIEW_MAX_TOKENS = ["512", "1024", "2048", "4096", "8192"];
 
 function createPolicyRuleEditor(options: {
   index: number;
@@ -432,7 +442,7 @@ export function registerGuardrailsSettings(
         const scoped = scopedConfig.classifier?.models;
         let latest = scoped ?? resolved.classifier.models;
         return new ArrayEditor({
-          label: "Classifier Models (provider/model)",
+          label: "Reviewer Models (provider/model)",
           items: [...latest],
           theme: settingsTheme,
           onSave: (items) => {
@@ -597,7 +607,7 @@ export function registerGuardrailsSettings(
               id: "classifier.models",
               label: "Models",
               description:
-                "Classifier models as provider/model. Runs only on actions that would prompt you",
+                "Reviewer models as provider/model. Classifier models are asked with Pi's classify API, any other model is asked as a chat model. Runs only on actions that would prompt you",
               currentValue: scopedConfig.classifier?.models
                 ? scopedConfig.classifier.models.join(", ") || "none"
                 : `inherited: ${resolved.classifier.models.join(", ") || "none"}`,
@@ -612,6 +622,27 @@ export function registerGuardrailsSettings(
                 scopedConfig.classifier?.strategy ??
                 `inherited: ${resolved.classifier.strategy}`,
               values: ["fallback", "random", "consensus"],
+            },
+            {
+              id: "classifier.chat.reasoning",
+              label: "Chat review thinking",
+              description:
+                "Thinking level for a chat reviewer (classifier models ignore it). off answers fastest",
+              currentValue:
+                scopedConfig.classifier?.chat?.reasoning ??
+                `inherited: ${resolved.classifier.chat.reasoning}`,
+              values: CHAT_REVIEW_REASONING_VALUES,
+            },
+            {
+              id: "classifier.chat.maxTokens",
+              label: "Chat review output limit",
+              description:
+                "Output limit for the chat review request. A cut-off answer escalates to you",
+              currentValue:
+                scopedConfig.classifier?.chat?.maxTokens !== undefined
+                  ? String(scopedConfig.classifier.chat.maxTokens)
+                  : `inherited: ${resolved.classifier.chat.maxTokens}`,
+              values: CHAT_REVIEW_MAX_TOKENS,
             },
             {
               id: "delegation.timeoutMs",
@@ -697,6 +728,16 @@ export function registerGuardrailsSettings(
         const timeoutMs = Number(newValue);
         if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null;
         updated.delegation = { ...updated.delegation, timeoutMs };
+        return updated;
+      }
+
+      if (id === "classifier.chat.maxTokens") {
+        const maxTokens = Number(newValue);
+        if (!Number.isFinite(maxTokens) || maxTokens <= 0) return null;
+        updated.classifier = {
+          ...updated.classifier,
+          chat: { ...updated.classifier?.chat, maxTokens },
+        };
         return updated;
       }
 

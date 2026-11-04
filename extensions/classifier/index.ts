@@ -32,6 +32,7 @@ export default async function classifier(pi: ExtensionAPI) {
       return runClassifier(request, context, {
         models: config.classifier.models,
         strategy: config.classifier.strategy,
+        chat: config.classifier.chat,
       });
     },
   });

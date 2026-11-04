@@ -90,7 +90,7 @@ when the action is blocked.
 | `cwd` | session working directory |
 | `signal` | aborts on timeout, agent abort, or once another delegate blocked; stop work when it fires |
 | `sessionManager` | read-only session: `buildSessionProjection()` for what the model sees, `getBranch()` / `getEntries()` for the full history |
-| `modelRegistry` | Pi models, e.g. `getModelOfType("classifier", …)` and `classify()` |
+| `modelRegistry` | Pi models, e.g. `getModelOfType("classifier", …)`, `classify()`, `getModelOfType("chat", …)`, `streamSimple()` |
 
 A delegate cannot prompt the user through this contract; it returns `ask`
 instead. It is still ordinary extension code and can use its own `pi` API.
@@ -122,10 +122,10 @@ instead. It is still ordinary extension code and can use its own `pi` API.
 
 Types: `src/shared/delegation/types.ts`.
 
-## Built-in classifier delegate
+## Built-in model reviewer
 
-`extensions/classifier` is a delegate backed by Pi classifier models. It is
-off by default; enable `features.classifier`.
+`extensions/classifier` is a delegate backed by Pi models. It is off by
+default; enable `features.classifier`.
 
 For each flagged action it asks the model three questions, using the user's
 recent requests in the session as the only source of authorization:
@@ -145,8 +145,9 @@ The answers map to a verdict with fixed thresholds
 {
   "features": { "classifier": true },
   "classifier": {
-    "models": ["typesafe/jev-latest"],
-    "strategy": "fallback"
+    "models": ["typesafe/jev-latest", "google/gemini-3.1-flash-lite"],
+    "strategy": "fallback",
+    "chat": { "maxTokens": 1024, "reasoning": "off" }
   }
 }
 ```
@@ -155,3 +156,40 @@ The answers map to a verdict with fixed thresholds
 several models, `strategy` is `fallback` (the first model that answers
 decides), `random` (fallback from a random start), or `consensus` (every model
 must allow; any block blocks).
+
+### Classifier models and chat models
+
+Each ref is asked through the API its catalogue entry supports:
+
+- A model listed as a **classifier** (`typesafe/jev-latest`, OpenRouter
+  decision models, llama.cpp decision models) answers through Pi's `classify()`
+  and reports measured probabilities.
+- Any other model is asked as a **chat model**: the same rubric is rendered as
+  a system prompt, the state is sent as a JSON user message, and the model must
+  answer with one JSON object. `extensions/classifier/chat.ts` parses the
+  answer back into the classifier answer shape, so the thresholds above apply
+  unchanged. A model listed as both is asked as a classifier.
+
+A chat reviewer is a general cloud model (Gemini, GPT, DeepSeek, …) judging the
+action, which is how a dangerous command gets approved or blocked without you.
+
+Chat answers carry a self-reported `confidence` for each answer. A missing or
+malformed confidence counts as 0.75: enough to block an action the model calls
+out of scope, never enough to run one without asking you.
+
+Chat settings (`classifier.chat`, ignored by classifier models):
+
+| setting | meaning |
+|---|---|
+| `maxTokens` | Output limit for the review request. Default 1024, capped at 8192. An answer cut off by the limit escalates to you. |
+| `reasoning` | Thinking level for the request. Default `off`: one structured judgement, answered fast. |
+| `instructions` | Extra rubric text appended to the system prompt, for project-specific rules. This is trusted config, not model output. |
+
+A chat model is slower than a classifier, and delegates answer inside
+`delegation.timeoutMs` (default 10s, capped at 60s). A review that runs out of
+time escalates to the usual prompt, so a slower model wants a longer deadline:
+`"delegation": { "timeoutMs": 20000 }`.
+
+Only the session's own user requests authorize an action. The action text, the
+agent's stated reason, and anything quoted inside them are sent as data and
+cannot change the rubric.

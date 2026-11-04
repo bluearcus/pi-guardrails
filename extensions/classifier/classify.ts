@@ -1,9 +1,17 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ClassifierStrategy } from "../../src/shared/config";
+import type {
+  ChatReviewConfig,
+  ClassifierStrategy,
+} from "../../src/shared/config";
 import type {
   DelegationContext,
   DelegationRequest,
 } from "../../src/shared/delegation";
+import {
+  type ChatReviewCallOptions,
+  resolveChatModel,
+  reviewWithChatModel,
+} from "./chat";
 import { type ContextMessage, collectTaskContext } from "./context";
 import {
   type ClassifierDecision,
@@ -13,10 +21,18 @@ import {
 } from "./decision";
 import { buildClassifierRequest, type ClassifierRequest } from "./requests";
 
+type ModelRegistry = ExtensionContext["modelRegistry"];
+
 type Registry = Pick<
-  ExtensionContext["modelRegistry"],
-  "getModelOfType" | "classify"
+  ModelRegistry,
+  "getModelOfType" | "classify" | "streamSimple"
 >;
+
+/**
+ * How a configured model is reached. `classifier` models answer through Pi's
+ * classify API; `chat` models answer the same rubric as JSON.
+ */
+export type ReviewModelKind = "classifier" | "chat";
 
 export interface ModelRef {
   provider: string;
@@ -78,6 +94,68 @@ export async function classifyWithModel(
   }
 }
 
+/** Which review API a configured model ref reaches. */
+export function resolveReviewModelKind(
+  registry: Registry,
+  ref: ModelRef,
+): ReviewModelKind | undefined {
+  const isListed = (type: ReviewModelKind): boolean => {
+    try {
+      return (
+        registry.getModelOfType(type, ref.provider, ref.model) !== undefined
+      );
+    } catch {
+      // A provider the registry cannot resolve lists nothing; the caller
+      // reports the ref as unavailable.
+      return false;
+    }
+  };
+
+  if (isListed("classifier")) return "classifier";
+  if (isListed("chat")) return "chat";
+  return undefined;
+}
+
+/**
+ * Ask one configured model. A model listed as a classifier keeps the classify
+ * API, which is cheaper and returns measured probabilities; otherwise the ref
+ * is treated as a cloud chat model and answers the same rubric as JSON.
+ */
+export async function reviewWithModel(
+  registry: Registry,
+  ref: ModelRef,
+  request: ClassifierRequest,
+  hasTaskContext: boolean,
+  signal: AbortSignal,
+  chat: ChatReviewCallOptions = {},
+): Promise<ModelRun> {
+  const label = `${ref.provider}/${ref.model}`;
+
+  if (resolveReviewModelKind(registry, ref) === "classifier") {
+    return classifyWithModel(registry, ref, request, hasTaskContext, signal);
+  }
+
+  const resolved = resolveChatModel(registry, ref.provider, ref.model);
+  if (!resolved) {
+    return {
+      model: label,
+      decision: unavailable(`${label} is not available`),
+      elapsedMs: 0,
+    };
+  }
+
+  const run = await reviewWithChatModel(
+    registry,
+    label,
+    resolved.model,
+    request,
+    hasTaskContext,
+    signal,
+    chat,
+  );
+  return { model: label, ...run };
+}
+
 function shuffled<T>(items: readonly T[], random: () => number): T[] {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -113,6 +191,8 @@ export interface ClassifierAnswer {
 export interface RunClassifierOptions {
   models: readonly string[];
   strategy: ClassifierStrategy;
+  /** Options for the models configured as chat reviewers. */
+  chat?: ChatReviewConfig | ChatReviewCallOptions;
   random?: () => number;
 }
 
@@ -142,12 +222,13 @@ export async function runClassifier(
   });
   const hasTaskContext = taskContext.userRequests.length > 0;
   const run = (ref: ModelRef) =>
-    classifyWithModel(
+    reviewWithModel(
       context.modelRegistry,
       ref,
       classifierRequest,
       hasTaskContext,
       context.signal,
+      options.chat,
     );
 
   const runs: ModelRun[] = [];

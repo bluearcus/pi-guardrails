@@ -106,13 +106,29 @@ export interface PathAccessConfig {
 }
 
 /**
- * How the built-in classifier delegate uses its models.
+ * How the built-in model reviewer uses its models.
  * - `fallback`: try models in order; the first one that answers decides.
  * - `random`: like fallback, starting from a random model each time.
  * - `consensus`: ask every model; any block blocks, all must allow to allow,
  *   anything else asks you.
  */
 export type ClassifierStrategy = "fallback" | "random" | "consensus";
+
+/** Thinking level for a chat review request. Providers without thinking ignore it. */
+export type ChatReviewReasoning = "off" | "minimal" | "low" | "medium" | "high";
+
+/**
+ * How chat (general LLM) models are asked. Classifier models keep Pi's
+ * classify API and ignore these settings.
+ */
+export interface ChatReviewConfig {
+  /** Output limit for the review request. Default: 1024, capped at 8192. */
+  maxTokens?: number;
+  /** Thinking level for the review request. Default: "off" — one structured judgement, fast. */
+  reasoning?: ChatReviewReasoning;
+  /** Extra rubric text appended to the review prompt, for project-specific rules. */
+  instructions?: string;
+}
 
 export interface DelegationConfig {
   /** How long delegates get to decide before the action escalates to you, in milliseconds. Default: 10000. */
@@ -121,12 +137,16 @@ export interface DelegationConfig {
 
 export interface ClassifierConfig {
   /**
-   * Classifier models as `provider/model` (e.g. `typesafe/jev-latest`).
-   * The first `/` separates the provider from the model id.
+   * Reviewer models as `provider/model` (e.g. `typesafe/jev-latest`,
+   * `google/gemini-3.1-flash-lite`). The first `/` separates the provider from
+   * the model id. A model the catalogue lists as a classifier answers through
+   * Pi's classify API; any other model is asked as a chat model.
    */
   models?: string[];
   /** How to use several models. Default: "fallback". */
   strategy?: ClassifierStrategy;
+  /** Settings for models asked as chat models. */
+  chat?: ChatReviewConfig;
 }
 
 export interface GuardrailsConfig {
@@ -170,7 +190,7 @@ export interface GuardrailsConfig {
   };
   /** Settings for delegating would-be prompts to registered decision delegates. */
   delegation?: DelegationConfig;
-  /** Built-in classifier delegate. Enable with `features.classifier`. */
+  /** Built-in model reviewer (classifier or chat models). Enable with `features.classifier`. */
   classifier?: ClassifierConfig;
   /** Dangerous bash command detection and confirmation settings. */
   permissionGate?: {
@@ -207,6 +227,11 @@ export interface ResolvedConfig {
   classifier: {
     models: string[];
     strategy: ClassifierStrategy;
+    chat: {
+      maxTokens: number;
+      reasoning: ChatReviewReasoning;
+      instructions: string;
+    };
   };
   permissionGate: {
     patterns: DangerousPattern[];

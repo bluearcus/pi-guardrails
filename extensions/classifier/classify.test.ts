@@ -4,9 +4,12 @@ import {
   combineRuns,
   type ModelRun,
   parseModelRef,
+  resolveReviewModelKind,
+  reviewWithModel,
   runClassifier,
 } from "./classify";
 import type { ClassifierOutcome } from "./decision";
+import { buildClassifierRequest } from "./requests";
 
 const request: DelegationRequest = {
   feature: "permissionGate",
@@ -65,6 +68,178 @@ function context(
     classify,
   };
 }
+
+const CHAT_ALLOW = JSON.stringify({
+  context_sufficiency: { answer: true, confidence: 0.9 },
+  authorization: { answer: "in_scope", confidence: 0.9 },
+  impact: { answer: 1, confidence: 0.9 },
+  explanation: "removes generated dependencies",
+});
+
+/**
+ * A registry where `classifier` refs come from `classifierRefs` and `chat`
+ * refs from `chatRefs`; `chatAnswers` decides what each chat model replies.
+ */
+function mixedContext(options: {
+  classifierRefs?: Record<string, ClassifierOutcome | Error | undefined>;
+  chatRefs?: string[];
+  chatAnswers?: Record<string, string | Error>;
+  messages?: unknown[];
+}) {
+  const classifierRefs = options.classifierRefs ?? {};
+  const chatRefs = options.chatRefs ?? [];
+  const chatAnswers = options.chatAnswers ?? {};
+
+  const classify = vi.fn(async (model: { id: string }) => {
+    const response = classifierRefs[model.id];
+    if (response instanceof Error) throw response;
+    return response as ClassifierOutcome;
+  });
+  const streamSimple = vi.fn(
+    (
+      model: { id: string },
+      _context: unknown,
+      _options: { maxTokens?: number; reasoning?: string },
+    ) => {
+      const answer = chatAnswers[model.id];
+      if (answer instanceof Error) throw answer;
+      const text = answer ?? "no answer";
+      return {
+        result: async () => ({
+          content: [{ type: "text", text }],
+          stopReason: "stop",
+        }),
+      };
+    },
+  );
+  const getModelOfType = vi.fn(
+    (type: string, _provider: string, id: string) => {
+      if (type === "classifier") {
+        return id in classifierRefs && classifierRefs[id] !== undefined
+          ? { id }
+          : undefined;
+      }
+      return chatRefs.includes(id) ? { id } : undefined;
+    },
+  );
+
+  return {
+    cwd: "/workspace",
+    signal: new AbortController().signal,
+    modelRegistry: { getModelOfType, classify, streamSimple } as never,
+    sessionManager: {
+      buildSessionProjection: () => ({
+        messages: options.messages ?? [{ role: "user", content: "clean deps" }],
+      }),
+    } as never,
+    classify,
+    streamSimple,
+  };
+}
+
+describe("resolveReviewModelKind", () => {
+  it("prefers the classifier API for a model listed as one", () => {
+    const ctx = mixedContext({
+      classifierRefs: { jev: ALLOW },
+      chatRefs: ["jev"],
+    });
+    expect(
+      resolveReviewModelKind(ctx.modelRegistry, {
+        provider: "typesafe",
+        model: "jev",
+      }),
+    ).toBe("classifier");
+  });
+
+  it("treats a chat-only model as a chat reviewer", () => {
+    const ctx = mixedContext({ chatRefs: ["gemini"] });
+    expect(
+      resolveReviewModelKind(ctx.modelRegistry, {
+        provider: "google",
+        model: "gemini",
+      }),
+    ).toBe("chat");
+  });
+
+  it("resolves nothing for an unknown model", () => {
+    const ctx = mixedContext({});
+    expect(
+      resolveReviewModelKind(ctx.modelRegistry, {
+        provider: "google",
+        model: "nope",
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("reviewWithModel", () => {
+  it("keeps the classify API for classifier models", async () => {
+    const ctx = mixedContext({ classifierRefs: { jev: ALLOW } });
+    const run = await reviewWithModel(
+      ctx.modelRegistry,
+      { provider: "typesafe", model: "jev" },
+      buildClassifierRequest({
+        action: request.action,
+        toolName: "bash",
+        cwd: "/workspace",
+        userRequests: ["clean deps"],
+        flaggedReason: request.reason,
+      }),
+      true,
+      new AbortController().signal,
+    );
+    expect(run.decision.verdict).toBe("allow");
+    expect(ctx.classify).toHaveBeenCalledTimes(1);
+    expect(ctx.streamSimple).not.toHaveBeenCalled();
+  });
+
+  it("asks a cloud chat model the same rubric", async () => {
+    const ctx = mixedContext({
+      chatRefs: ["gemini"],
+      chatAnswers: { gemini: CHAT_ALLOW },
+    });
+    const run = await reviewWithModel(
+      ctx.modelRegistry,
+      { provider: "google", model: "gemini" },
+      buildClassifierRequest({
+        action: request.action,
+        toolName: "bash",
+        cwd: "/workspace",
+        userRequests: ["clean deps"],
+        flaggedReason: request.reason,
+      }),
+      true,
+      new AbortController().signal,
+      { maxTokens: 512, reasoning: "off" },
+    );
+    expect(run.model).toBe("google/gemini");
+    expect(run.decision.verdict).toBe("allow");
+    expect(ctx.classify).not.toHaveBeenCalled();
+    expect(ctx.streamSimple.mock.calls[0]?.[2]).toEqual({
+      maxTokens: 512,
+      reasoning: "off",
+    });
+  });
+
+  it("escalates for a model the catalogue does not have", async () => {
+    const ctx = mixedContext({});
+    const run = await reviewWithModel(
+      ctx.modelRegistry,
+      { provider: "google", model: "missing" },
+      buildClassifierRequest({
+        action: request.action,
+        toolName: "bash",
+        cwd: "/workspace",
+        userRequests: ["clean deps"],
+        flaggedReason: request.reason,
+      }),
+      true,
+      new AbortController().signal,
+    );
+    expect(run.decision.code).toBe("escalate-unavailable");
+    expect(run.decision.reason).toContain("is not available");
+  });
+});
 
 describe("parseModelRef", () => {
   it.each([
@@ -156,6 +331,53 @@ describe("runClassifier", () => {
       expect(answer?.verdict).toBe("ask");
       expect(ctx.classify).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("falls from an unavailable classifier to a chat model", async () => {
+    const ctx = mixedContext({
+      classifierRefs: { jev: new Error("no key") },
+      chatRefs: ["gemini"],
+      chatAnswers: { gemini: CHAT_ALLOW },
+    });
+    const answer = await runClassifier(request, ctx, {
+      models: ["typesafe/jev", "google/gemini"],
+      strategy: "fallback",
+      chat: { maxTokens: 512, reasoning: "off", instructions: "" },
+    });
+    expect(answer?.verdict).toBe("allow");
+    expect(answer?.reason).toContain("google/gemini: in scope");
+    expect(answer?.details.runs.map((run) => run.model)).toEqual([
+      "typesafe/jev",
+      "google/gemini",
+    ]);
+  });
+
+  it("asks when a chat model answers with prose instead of JSON", async () => {
+    const ctx = mixedContext({
+      chatRefs: ["gemini"],
+      chatAnswers: { gemini: "this looks fine" },
+    });
+    const answer = await runClassifier(request, ctx, {
+      models: ["google/gemini"],
+      strategy: "fallback",
+    });
+    expect(answer?.verdict).toBe("ask");
+    expect(answer?.reason).toContain("no JSON object");
+  });
+
+  it("consensus mixes classifier and chat models", async () => {
+    const ctx = mixedContext({
+      classifierRefs: { jev: ALLOW },
+      chatRefs: ["gemini"],
+      chatAnswers: { gemini: CHAT_ALLOW },
+    });
+    const answer = await runClassifier(request, ctx, {
+      models: ["typesafe/jev", "google/gemini"],
+      strategy: "consensus",
+    });
+    expect(answer?.verdict).toBe("allow");
+    expect(ctx.classify).toHaveBeenCalledTimes(1);
+    expect(ctx.streamSimple).toHaveBeenCalledTimes(1);
   });
 
   it("random starts from a shuffled model", async () => {
