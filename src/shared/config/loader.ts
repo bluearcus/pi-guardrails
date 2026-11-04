@@ -172,7 +172,20 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
         typeof chat?.instructions === "string"
           ? chat.instructions.trim()
           : DEFAULT_CHAT_REVIEW.instructions;
-      resolved.classifier.chat = { maxTokens, reasoning, instructions };
+      const requestedAllowConfidence = chat?.allowConfidence;
+      const allowConfidence =
+        typeof requestedAllowConfidence === "number" &&
+        Number.isFinite(requestedAllowConfidence) &&
+        requestedAllowConfidence >= 0 &&
+        requestedAllowConfidence <= 1
+          ? requestedAllowConfidence
+          : DEFAULT_CHAT_REVIEW.allowConfidence;
+      resolved.classifier.chat = {
+        maxTokens,
+        reasoning,
+        instructions,
+        allowConfidence,
+      };
 
       return resolved;
     },

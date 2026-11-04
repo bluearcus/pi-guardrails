@@ -477,7 +477,12 @@ describe("delegation and classifier resolution", () => {
     expect(config.classifier).toEqual({
       models: ["opencode-go/deepseek-v4.1-flash"],
       strategy: "fallback",
-      chat: { maxTokens: 1024, reasoning: "off", instructions: "" },
+      chat: {
+        maxTokens: 1024,
+        reasoning: "off",
+        instructions: "",
+        allowConfidence: 0.8,
+      },
     });
   });
 
@@ -521,6 +526,25 @@ describe("delegation and classifier resolution", () => {
         { classifier: { chat: { reasoning } } },
       );
       expect(config.classifier.chat.reasoning).toBe(expected);
+    },
+  );
+
+  it.each([
+    [1, 1],
+    [0.9, 0.9],
+    [0, 0],
+    [1.2, 0.8],
+    [-0.5, 0.8],
+    ["0.9", 0.8],
+    [undefined, 0.8],
+  ])(
+    "bounds classifier.chat.allowConfidence %j to %j",
+    async (allowConfidence, expected) => {
+      const config = await load(
+        `/tmp/pi-chat-allow-confidence-${JSON.stringify(allowConfidence)}`,
+        { classifier: { chat: { allowConfidence } } },
+      );
+      expect(config.classifier.chat.allowConfidence).toBe(expected);
     },
   );
 

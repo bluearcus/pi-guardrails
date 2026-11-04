@@ -6,6 +6,21 @@ export const ALLOW_CONFIDENCE = 0.85;
 export const DESTRUCTIVE_IMPACT = 2.5;
 export const BLOCK_IMPACT = 2;
 
+/** The thresholds every reviewer is judged by unless a caller overrides one. */
+export interface DecisionThresholds {
+  trust: number;
+  allow: number;
+  destructiveImpact: number;
+  blockImpact: number;
+}
+
+export const DEFAULT_THRESHOLDS: DecisionThresholds = {
+  trust: TRUST_CONFIDENCE,
+  allow: ALLOW_CONFIDENCE,
+  destructiveImpact: DESTRUCTIVE_IMPACT,
+  blockImpact: BLOCK_IMPACT,
+};
+
 export type ClassifierDecisionCode =
   | "approved"
   | "escalate-insufficient-context"
@@ -105,12 +120,22 @@ function readScore(
 
 export interface DecideOptions {
   hasTaskContext: boolean;
+  /**
+   * Replace a threshold for this review. A chat model rates its own answers, so
+   * a reviewer can ask for a looser bar than the measured classifier
+   * probabilities get. Anything omitted keeps the built-in value.
+   */
+  thresholds?: Partial<DecisionThresholds>;
 }
 
 export function decide(
   outcome: ClassifierOutcome,
   options: DecideOptions,
 ): ClassifierDecision {
+  const thresholds: DecisionThresholds = {
+    ...DEFAULT_THRESHOLDS,
+    ...(options.thresholds ?? {}),
+  };
   const facts: ClassifierFacts = {};
 
   if (outcome.stopReason !== "stop") {
@@ -148,9 +173,9 @@ export function decide(
 
   if (
     authorization.label === "out_of_scope" &&
-    authorization.probability >= TRUST_CONFIDENCE
+    authorization.probability >= thresholds.trust
   ) {
-    if (impact.level >= BLOCK_IMPACT) {
+    if (impact.level >= thresholds.blockImpact) {
       return {
         verdict: "block",
         code: "blocked-out-of-scope",
@@ -184,7 +209,7 @@ export function decide(
     };
   }
 
-  if (sufficiency < TRUST_CONFIDENCE) {
+  if (sufficiency < thresholds.trust) {
     return {
       verdict: "ask",
       code: "escalate-insufficient-context",
@@ -193,7 +218,7 @@ export function decide(
     };
   }
 
-  if (impact.level >= DESTRUCTIVE_IMPACT) {
+  if (impact.level >= thresholds.destructiveImpact) {
     return {
       verdict: "ask",
       code: "escalate-destructive",
@@ -203,8 +228,8 @@ export function decide(
   }
 
   if (
-    sufficiency >= ALLOW_CONFIDENCE &&
-    authorization.probability >= ALLOW_CONFIDENCE
+    sufficiency >= thresholds.allow &&
+    authorization.probability >= thresholds.allow
   ) {
     return {
       verdict: "allow",

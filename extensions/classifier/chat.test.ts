@@ -7,6 +7,7 @@ import {
   extractJsonObject,
   type ParsedChatReview,
   parseChatReview,
+  repairJson,
   resolveChatModel,
   reviewWithChatModel,
 } from "./chat";
@@ -169,6 +170,22 @@ describe("parseChatReview", () => {
     expect(parsed.ok).toBe(true);
   });
 
+  it("repairs a bare label and a trailing comma", () => {
+    const parsed = parseChatReview(
+      '{ "context_sufficiency": { "answer": true, "confidence": 0.9 }, "authorization": { "answer": out_of_scope, "confidence": 0.95 }, "impact": { "answer": 4, "confidence": 0.9 }, }',
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(choiceAnswer(parsed.answers, "authorization").choice).toBe(
+      "out_of_scope",
+    );
+    expect(scoreAnswer(parsed.answers, "impact").score).toBe(4);
+  });
+
+  it("leaves valid JSON as it was written", () => {
+    const text = JSON.stringify(full, null, 2);
+    expect(repairJson(text)).toBe(text);
+  });
+
   it("converts a false sufficiency answer into a low probability", () => {
     const parsed = parseChatReview(
       JSON.stringify({
@@ -291,6 +308,14 @@ describe("chatReviewOptions", () => {
   it("passes a configured thinking level", () => {
     expect(chatReviewOptions({ reasoning: "low" }).reasoning).toBe("low");
   });
+
+  it("carries the conversation id when one is given", () => {
+    expect(chatReviewOptions({ sessionId: "session-1" })).toEqual({
+      maxTokens: 1024,
+      reasoning: "off",
+      sessionId: "session-1",
+    });
+  });
 });
 
 describe("resolveChatModel", () => {
@@ -348,6 +373,51 @@ describe("reviewWithChatModel", () => {
       expect.objectContaining({ systemPrompt: expect.any(String) }),
       { maxTokens: 1024, reasoning: "off" },
     );
+  });
+
+  it("allows a review the classifier bar would have escalated", async () => {
+    const { registry, model } = registryWith(
+      textMessage(
+        JSON.stringify({
+          context_sufficiency: { answer: true, confidence: 0.82 },
+          authorization: { answer: "in_scope", confidence: 0.82 },
+          impact: { answer: 2, confidence: 0.9 },
+          explanation: "reversible cleanup of a generated folder",
+        }),
+      ),
+    );
+    const run = await reviewWithChatModel(
+      registry,
+      "google/gemini",
+      model,
+      request,
+      true,
+      new AbortController().signal,
+    );
+    expect(run.decision.verdict).toBe("allow");
+  });
+
+  it("escalates when a stricter bar is configured", async () => {
+    const { registry, model } = registryWith(
+      textMessage(
+        JSON.stringify({
+          context_sufficiency: { answer: true, confidence: 0.82 },
+          authorization: { answer: "in_scope", confidence: 0.82 },
+          impact: { answer: 2, confidence: 0.9 },
+        }),
+      ),
+    );
+    const run = await reviewWithChatModel(
+      registry,
+      "google/gemini",
+      model,
+      request,
+      true,
+      new AbortController().signal,
+      { allowConfidence: 0.9 },
+    );
+    expect(run.decision.verdict).toBe("ask");
+    expect(run.decision.code).toBe("escalate-low-confidence");
   });
 
   it("blocks an out-of-scope destructive review", async () => {

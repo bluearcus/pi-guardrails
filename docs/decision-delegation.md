@@ -169,8 +169,12 @@ Each ref is asked through the API its catalogue entry supports:
 - Any other model is asked as a **chat model**: the same rubric is rendered as
   a system prompt, the state is sent as a JSON user message, and the model must
   answer with one JSON object. `extensions/classifier/chat.ts` parses the
-  answer back into the classifier answer shape, so the thresholds above apply
-  unchanged. A model listed as both is asked as a classifier.
+  answer back into the classifier answer shape, so the rubric above applies
+  unchanged; only the confidence bar for running an action unprompted differs
+  (see `allowConfidence`). A model listed as both is asked as a classifier.
+  An answer that cannot be read, even after repairing the usual chat-model
+  slips (a bare label such as `"answer": out_of_scope`, a trailing comma),
+  escalates to you.
 
 A chat reviewer is a general cloud model (Gemini, GPT, DeepSeek, …) judging the
 action, which is how a dangerous command gets approved or blocked without you.
@@ -179,18 +183,28 @@ Chat answers carry a self-reported `confidence` for each answer. A missing or
 malformed confidence counts as 0.75: enough to block an action the model calls
 out of scope, never enough to run one without asking you.
 
+Self-reported confidence sits lower than a classifier's measured probability, so
+a chat reviewer is allowed at `allowConfidence` (default 0.8) rather than the
+classifier's 0.85. A reviewer that is less sure than that bar escalates to the
+prompt.
+
 Chat settings (`classifier.chat`, ignored by classifier models):
 
 | setting | meaning |
 |---|---|
 | `maxTokens` | Output limit for the review request. Default 1024, capped at 8192. An answer cut off by the limit escalates to you. |
-| `reasoning` | Thinking level for the request. Default `off`: one structured judgement, answered fast. |
+| `reasoning` | Thinking level for the request. Default `off`: one structured judgement, answered fast. A model without an `off` level in its thinking map gets its lowest supported level. |
 | `instructions` | Extra rubric text appended to the system prompt, for project-specific rules. This is trusted config, not model output. |
+| `allowConfidence` | How sure the reviewer must be about context and scope to run the action without asking you. Default 0.8, range 0–1. |
 
 A chat model is slower than a classifier, and delegates answer inside
 `delegation.timeoutMs` (default 10s, capped at 60s). A review that runs out of
 time escalates to the usual prompt, so a slower model wants a longer deadline:
 `"delegation": { "timeoutMs": 20000 }`.
+
+Measured against `opencode-go/deepseek-v4.1-flash` with `reasoning: "off"`: a
+review answers in 2–6 s for about 1.1k prompt tokens and 200–400 answer tokens,
+which is inside a 20 s deadline but not always inside the 10 s default.
 
 Only the session's own user requests authorize an action. The action text, the
 agent's stated reason, and anything quoted inside them are sent as data and

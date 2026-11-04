@@ -17,6 +17,7 @@ export const DEFAULT_CHAT_REVIEW = {
   maxTokens: 1024,
   reasoning: "off" as ChatReviewReasoning,
   instructions: "",
+  allowConfidence: 0.8,
 };
 
 export const DEFAULT_CONFIG: ResolvedConfig = {

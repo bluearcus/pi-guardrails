@@ -196,6 +196,19 @@ export interface RunClassifierOptions {
   random?: () => number;
 }
 
+/**
+ * The Pi session id, used as the review conversation id. Delegates built for
+ * tests may hand a partial session manager, so the accessor is checked.
+ */
+function reviewSessionId(
+  sessionManager: DelegationContext["sessionManager"],
+): string | undefined {
+  if (sessionManager && typeof sessionManager.getSessionId === "function") {
+    return sessionManager.getSessionId();
+  }
+  return undefined;
+}
+
 export async function runClassifier(
   request: DelegationRequest,
   context: Pick<
@@ -221,6 +234,10 @@ export async function runClassifier(
     flaggedReason: request.reason,
   });
   const hasTaskContext = taskContext.userRequests.length > 0;
+  const chatOptions: ChatReviewCallOptions = {
+    ...options.chat,
+    sessionId: reviewSessionId(context.sessionManager),
+  };
   const run = (ref: ModelRef) =>
     reviewWithModel(
       context.modelRegistry,
@@ -228,7 +245,7 @@ export async function runClassifier(
       classifierRequest,
       hasTaskContext,
       context.signal,
-      options.chat,
+      chatOptions,
     );
 
   const runs: ModelRun[] = [];

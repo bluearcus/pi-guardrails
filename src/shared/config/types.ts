@@ -128,6 +128,10 @@ export interface ChatReviewConfig {
   reasoning?: ChatReviewReasoning;
   /** Extra rubric text appended to the review prompt, for project-specific rules. */
   instructions?: string;
+  /**
+   * How sure the reviewer must be about sufficiency and authorization before a chat review runs the action without asking you. Default: 0.8. Below it the action escalates to the normal prompt.
+   */
+  allowConfidence?: number;
 }
 
 export interface DelegationConfig {
@@ -231,6 +235,7 @@ export interface ResolvedConfig {
       maxTokens: number;
       reasoning: ChatReviewReasoning;
       instructions: string;
+      allowConfidence: number;
     };
   };
   permissionGate: {

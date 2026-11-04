@@ -73,6 +73,7 @@ const CHAT_REVIEW_REASONING_VALUES = [
 ];
 
 const CHAT_REVIEW_MAX_TOKENS = ["512", "1024", "2048", "4096", "8192"];
+const CHAT_REVIEW_ALLOW_CONFIDENCE = ["0.7", "0.8", "0.85", "0.9", "1"];
 
 function createPolicyRuleEditor(options: {
   index: number;
@@ -645,6 +646,17 @@ export function registerGuardrailsSettings(
               values: CHAT_REVIEW_MAX_TOKENS,
             },
             {
+              id: "classifier.chat.allowConfidence",
+              label: "Chat review confidence bar",
+              description:
+                "How sure a chat reviewer must be about scope and context to act without asking you",
+              currentValue:
+                scopedConfig.classifier?.chat?.allowConfidence !== undefined
+                  ? String(scopedConfig.classifier.chat.allowConfidence)
+                  : `inherited: ${resolved.classifier.chat.allowConfidence}`,
+              values: CHAT_REVIEW_ALLOW_CONFIDENCE,
+            },
+            {
               id: "delegation.timeoutMs",
               label: "Decision timeout (ms)",
               description:
@@ -737,6 +749,22 @@ export function registerGuardrailsSettings(
         updated.classifier = {
           ...updated.classifier,
           chat: { ...updated.classifier?.chat, maxTokens },
+        };
+        return updated;
+      }
+
+      if (id === "classifier.chat.allowConfidence") {
+        const allowConfidence = Number(newValue);
+        if (
+          !Number.isFinite(allowConfidence) ||
+          allowConfidence < 0 ||
+          allowConfidence > 1
+        ) {
+          return null;
+        }
+        updated.classifier = {
+          ...updated.classifier,
+          chat: { ...updated.classifier?.chat, allowConfidence },
         };
         return updated;
       }

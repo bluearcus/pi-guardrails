@@ -275,6 +275,24 @@ function normalizeScore(
   };
 }
 
+/**
+ * Repair the ways chat models break JSON: a bare label where a quoted string
+ * belongs (`"answer": out_of_scope`), and a trailing comma before a closing
+ * brace or bracket. Valid JSON passes through unchanged.
+ */
+export function repairJson(text: string): string {
+  const quoted = text.replace(
+    /([:\s])\s([A-Za-z_][A-Za-z0-9_]*)(\s*[,}\n])/g,
+    (_match, lead: string, word: string, tail: string) => {
+      if (BARE_JSON_LITERALS.has(word)) return `${lead} ${word}${tail}`;
+      return `${lead} "${word}"${tail}`;
+    },
+  );
+  return quoted.replace(/,\s*([}\]])/g, "$1");
+}
+
+const BARE_JSON_LITERALS = new Set(["true", "false", "null"]);
+
 export function parseChatReview(text: string): ParsedChatReview {
   const candidate = extractJsonObject(stripFences(text));
   if (!candidate) return { ok: false, error: "no JSON object in the answer" };
@@ -283,7 +301,15 @@ export function parseChatReview(text: string): ParsedChatReview {
   try {
     parsed = JSON.parse(candidate);
   } catch (error) {
-    return { ok: false, error: `unparseable JSON (${errorText(error)})` };
+    const repaired = repairJson(candidate);
+    if (repaired === candidate) {
+      return { ok: false, error: `unparseable JSON (${errorText(error)})` };
+    }
+    try {
+      parsed = JSON.parse(repaired);
+    } catch {
+      return { ok: false, error: `unparseable JSON (${errorText(error)})` };
+    }
   }
 
   const record = asRecord(parsed);
@@ -404,6 +430,18 @@ export interface ChatReviewCallOptions {
   maxTokens?: number;
   reasoning?: string;
   instructions?: string;
+  /**
+   * Conversation id for providers that route or cache per conversation.
+   * OpenCode requires an `x-opencode-session` header, so the Pi session id is
+   * passed and the provider maps it onto that header.
+   */
+  sessionId?: string;
+  /**
+   * How confident the reviewer must be about sufficiency and authorization
+   * before a chat review is allowed to skip the prompt. Chat models rate their
+   * own answers, which sits lower than a classifier's measured probability.
+   */
+  allowConfidence?: number;
 }
 
 /** Bounds a chat review request: small output, no thinking unless asked for. */
@@ -420,7 +458,22 @@ export function chatReviewOptions(
     maxTokens,
     reasoning: (config.reasoning ??
       DEFAULT_CHAT_REVIEW.reasoning) as ChatOptions["reasoning"],
+    ...(config.sessionId ? { sessionId: config.sessionId } : {}),
   };
+}
+
+/**
+ * The confidence a chat review needs to skip the prompt. Self-reported
+ * confidence sits lower than a classifier's measured probability, so the chat
+ * reviewer gets its own bar.
+ */
+export function chatAllowConfidence(value?: number): number {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= 1
+    ? value
+    : DEFAULT_CHAT_REVIEW.allowConfidence;
 }
 
 export interface ChatReviewModelRef {
@@ -479,7 +532,13 @@ export async function reviewWithChatModel(
     const response = await stream.result();
     const outcome = chatReviewOutcome(response as ChatReviewMessage);
     return done(
-      withExplanation(decide(outcome, { hasTaskContext }), outcome.explanation),
+      withExplanation(
+        decide(outcome, {
+          hasTaskContext,
+          thresholds: { allow: chatAllowConfidence(options.allowConfidence) },
+        }),
+        outcome.explanation,
+      ),
     );
   } catch (error) {
     return done(

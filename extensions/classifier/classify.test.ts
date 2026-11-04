@@ -131,6 +131,7 @@ function mixedContext(options: {
       buildSessionProjection: () => ({
         messages: options.messages ?? [{ role: "user", content: "clean deps" }],
       }),
+      getSessionId: () => "session-1",
     } as never,
     classify,
     streamSimple,
@@ -350,6 +351,11 @@ describe("runClassifier", () => {
       "typesafe/jev",
       "google/gemini",
     ]);
+    expect(ctx.streamSimple.mock.calls[0]?.[2]).toEqual({
+      maxTokens: 512,
+      reasoning: "off",
+      sessionId: "session-1",
+    });
   });
 
   it("asks when a chat model answers with prose instead of JSON", async () => {
