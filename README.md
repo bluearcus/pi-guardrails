@@ -62,6 +62,8 @@ Approval prompts also report `blocked` program status (OSC 7501) natively throug
 
 Before permission-gate or path-access prompts you, other extensions can decide for you. If every registered delegate allows the action, it runs without a prompt; if any blocks it, it is blocked; anything else, including a timeout, falls back to the usual prompt. Each decision shows up under the tool call as a `[guardrails]` line.
 
+Delegation runs with or without a UI, so `pi -p` and JSON sessions get the same allow or block instead of an outright block. When an action still needs you, the reviewers' reasoning is shown with the prompt, and a headless block carries it in the reason the model sees.
+
 The built-in model reviewer judges whether a flagged action is in scope of what you asked. A model the catalogue lists as a classifier is asked through Pi's classify API; any other model — a cloud chat model such as `google/gemini-3.1-flash-lite` — is asked the same rubric and answers as JSON. Enable it with `features.classifier` (Settings → Features → Classifier).
 
 See [docs/decision-delegation.md](docs/decision-delegation.md) for the rules, the reviewer, and how to write a delegate, with runnable examples in `examples/delegates/`.

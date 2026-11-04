@@ -10,6 +10,12 @@ export interface PathAccessState {
   mode: "allow" | "ask" | "block";
   allowedPaths: AllowedPath[]; // already resolved to absolute
   hasUI: boolean;
+  /**
+   * True when decision delegates can judge the action. Without a UI they are
+   * the only way an outside path gets allowed, so an ask decision stays open
+   * to them instead of being denied up front.
+   */
+  canDelegate?: boolean;
 }
 
 const PROCESS_DEVICE_PATHS = new Set([
@@ -65,7 +71,7 @@ export function checkPathAccess(
   }
 
   // mode === "ask"
-  if (!state.hasUI) {
+  if (!state.hasUI && !state.canDelegate) {
     return {
       kind: "deny",
       reason: `Access to ${displayPath} is blocked (outside working directory, no UI to confirm).`,

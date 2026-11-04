@@ -7,6 +7,7 @@ import {
   Spacer,
   Text,
   visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
 // Grant result type from the UI prompt
@@ -178,6 +179,8 @@ export function createPathAccessPromptComponent(
     command?: string;
     dirGrantable?: boolean;
     alwaysEnabled?: boolean;
+    /** What the decision delegates said about this path. */
+    review?: string;
   } = {},
 ) {
   return (
@@ -241,6 +244,17 @@ export function createPathAccessPromptComponent(
       new Text(theme.fg("dim", `  Dir:  ${displayDir}`), 1, 0),
     );
     container.addChild(new Spacer(1));
+    if (opts.review) {
+      const width = Math.max(1, (tui.terminal.columns ?? 80) - 4);
+      container.addChild(
+        new Text(
+          theme.fg("warning", wrapTextWithAnsi(opts.review, width).join("\n")),
+          1,
+          0,
+        ),
+      );
+      container.addChild(new Spacer(1));
+    }
 
     const optionList: Component = {
       render: (width: number) => {

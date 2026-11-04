@@ -12,6 +12,7 @@ import {
   registerDelegate,
 } from "../../src/shared/delegation";
 import { GUARDRAILS_ACTION_BLOCKED_EVENT } from "../../src/shared/events";
+import { NOOP_THEME } from "../../tests/utils/theme";
 import permissionGate from "./index";
 
 const state: { autoDeny: string[]; requireConfirmation: boolean } = {
@@ -227,14 +228,104 @@ describe("permission gate delegation", () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it("never consults delegates in print/JSON mode (no UI: it blocks instead of prompting)", async () => {
-    const { run, ctx, decideSpy } = await setup(() => ({
+  it("lets a delegate decide in print/JSON mode instead of blocking outright", async () => {
+    const { run, ctx, decideSpy, blocked } = await setup(() => ({
       verdict: "allow",
-      reason: "x",
+      reason: "in scope",
     }));
+
     await expect(
       run("dangerous-cmd", { ...ctx, hasUI: false } as ExtensionContext),
-    ).resolves.toMatchObject({ block: true });
-    expect(decideSpy).not.toHaveBeenCalled();
+    ).resolves.toBeUndefined();
+    expect(decideSpy).toHaveBeenCalledOnce();
+    expect(blocked).not.toHaveBeenCalled();
+  });
+
+  it("blocks in print/JSON mode on a delegate block", async () => {
+    const { run, ctx } = await setup(() => ({
+      verdict: "block",
+      reason: "out of scope",
+    }));
+
+    await expect(
+      run("dangerous-cmd", { ...ctx, hasUI: false } as ExtensionContext),
+    ).resolves.toEqual({
+      block: true,
+      reason: "Blocked by decision delegate: test: out of scope",
+    });
+  });
+
+  it("reports the reviewer's reasoning in a print/JSON block", async () => {
+    const { run, ctx, blocked } = await setup(() => ({
+      verdict: "ask",
+      reason: "unclear whether your request covers this",
+    }));
+
+    const headless = { ...ctx, hasUI: false } as ExtensionContext;
+    const outcome = await run("dangerous-cmd", headless);
+    const result = outcome as { block: boolean; reason: string };
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain(
+      "Dangerous command blocked (no UI to confirm): test danger",
+    );
+    expect(result.reason).toContain("Model review");
+    expect(result.reason).toContain(
+      "test: unclear whether your request covers this",
+    );
+    expect(blocked).toHaveBeenCalledWith(
+      expect.objectContaining({
+        block: expect.objectContaining({
+          source: "nonInteractive",
+          metadata: expect.objectContaining({
+            delegation: expect.objectContaining({ verdict: "ask" }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("keeps the plain print/JSON block when no delegate is registered", async () => {
+    const { run, ctx, appendEntry } = await setup();
+
+    await expect(
+      run("dangerous-cmd", { ...ctx, hasUI: false } as ExtensionContext),
+    ).resolves.toEqual({
+      block: true,
+      reason: "Dangerous command blocked (no UI to confirm): test danger",
+    });
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("shows the reviewer's reasoning in the confirm prompt", async () => {
+    const { run, custom } = await setup(() => ({
+      verdict: "ask",
+      reason:
+        "in scope, but impact 3.0/4 is at or above the destructive threshold",
+    }));
+
+    await run("dangerous-cmd");
+    const calls = (custom as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls;
+    const factory = calls[0]?.[0] as (
+      tui: unknown,
+      theme: typeof NOOP_THEME,
+      kb: unknown,
+      done: (result: string) => void,
+    ) => { render(width: number): string[] | string };
+    const component = factory(
+      { terminal: { rows: 40, columns: 80 }, requestRender: vi.fn() },
+      NOOP_THEME,
+      {},
+      () => undefined,
+    );
+    const rendered = component.render(80);
+    const text = Array.isArray(rendered)
+      ? rendered.join("\n")
+      : String(rendered);
+
+    expect(text).toContain("test danger");
+    expect(text).toContain("Model review");
+    expect(text).toContain("test: in scope, but impact 3.0/4");
   });
 });

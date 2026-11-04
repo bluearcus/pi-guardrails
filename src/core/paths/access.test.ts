@@ -183,6 +183,13 @@ describe("checkPathAccess", () => {
       expect(decision.reason).toContain("no UI");
     });
 
+    it("leaves the decision open to delegates when no UI but reviewers can answer", () => {
+      const state = base({ mode: "ask", hasUI: false, canDelegate: true });
+      const decision = checkPathAccess("/etc/hosts", "/etc/hosts", state);
+      assert(decision.kind === "ask", "expected ask decision");
+      expect(decision.displayPath).toBe("/etc/hosts");
+    });
+
     it("returns allow when the path is in allowedPaths (no prompt)", () => {
       const state = base({
         mode: "ask",

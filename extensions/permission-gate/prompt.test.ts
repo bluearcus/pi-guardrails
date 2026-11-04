@@ -4,7 +4,11 @@ import { createPermissionGateConfirmComponent } from "./prompt";
 
 type ConfirmResult = "allow" | "allow-session" | "deny" | "stop";
 
-function mount(command: string, description = "recursive delete") {
+function mount(
+  command: string,
+  description = "recursive delete",
+  review?: string,
+) {
   let captured: ConfirmResult | undefined;
   const done = (result: ConfirmResult) => {
     captured = result;
@@ -15,12 +19,11 @@ function mount(command: string, description = "recursive delete") {
     requestRender: vi.fn(),
   };
 
-  const component = createPermissionGateConfirmComponent(command, description)(
-    tui,
-    NOOP_THEME,
-    {},
-    done,
-  );
+  const component = createPermissionGateConfirmComponent(
+    command,
+    description,
+    review,
+  )(tui, NOOP_THEME, {}, done);
 
   return {
     component,
@@ -32,6 +35,33 @@ describe("createPermissionGateConfirmComponent", () => {
   it("renders without throwing", () => {
     const { component } = mount("rm -rf /");
     expect(() => component.render(80)).not.toThrow();
+  });
+
+  it("renders the reviewer's reasoning above the decision", () => {
+    const { component } = mount(
+      "rm -rf /",
+      "recursive delete",
+      "Model review (2.4s): classifier: leaned in scope, but not confidently enough (82%)",
+    );
+    const text = component.render(80);
+    const lines = Array.isArray(text) ? text : String(text).split("\n");
+    const reviewIndex = lines.findIndex((line) =>
+      line.includes("not confidently enough"),
+    );
+    const decisionIndex = lines.findIndex((line) =>
+      line.includes("Allow execution?"),
+    );
+
+    expect(reviewIndex).toBeGreaterThanOrEqual(0);
+    expect(decisionIndex).toBeGreaterThan(reviewIndex);
+  });
+
+  it("omits the reviewer line when nothing reviewed the action", () => {
+    const rendered = mount("rm -rf /").component.render(80);
+    const text = Array.isArray(rendered)
+      ? rendered.join("\n")
+      : String(rendered);
+    expect(text).not.toContain("Model review");
   });
 
   it("allows with y / enter keys", () => {

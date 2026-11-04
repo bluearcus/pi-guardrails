@@ -98,6 +98,7 @@ function buildRightAlignedBorder(
 export function createPermissionGateConfirmComponent(
   command: string,
   description: string,
+  review?: string,
 ) {
   return (
     tui: { terminal: { rows: number; columns: number }; requestRender(): void },
@@ -134,6 +135,11 @@ export function createPermissionGateConfirmComponent(
     const commandBottomBorder = new Text("", 0, 0);
     container.addChild(commandBottomBorder);
     container.addChild(new Spacer(1));
+    const reviewText = review ? new Text("", 1, 0) : undefined;
+    if (reviewText) {
+      container.addChild(reviewText);
+      container.addChild(new Spacer(1));
+    }
     container.addChild(new Text(theme.fg("text", "Allow execution?"), 1, 0));
     container.addChild(new Spacer(1));
     container.addChild(
@@ -151,6 +157,14 @@ export function createPermissionGateConfirmComponent(
     return {
       render: (width: number) => {
         const contentWidth = Math.max(1, width - 4);
+        if (review && reviewText) {
+          reviewText.setText(
+            theme.fg(
+              "warning",
+              wrapTextWithAnsi(review, contentWidth).join("\n"),
+            ),
+          );
+        }
         const {
           maxScrollOffset,
           pinnedRows,

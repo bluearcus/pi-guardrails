@@ -8,6 +8,7 @@ import { configLoader } from "../../src/shared/config";
 import {
   createDelegateRoster,
   delegateDecision,
+  describeReview,
   registerDecisionEntryRenderer,
 } from "../../src/shared/delegation";
 import {
@@ -97,18 +98,6 @@ export default async function permissionGate(pi: ExtensionAPI) {
       return;
     }
 
-    if (!ctx.hasUI) {
-      const reason = `Dangerous command blocked (no UI to confirm): ${safety.reason}`;
-      emitActionBlocked(pi, {
-        feature: "permissionGate",
-        action: safety.action,
-        reason,
-        block: { source: "nonInteractive", metadata: safety.metadata },
-        context: { toolName: "bash", input: event.input },
-      });
-      return { block: true, reason };
-    }
-
     const delegated = await delegateDecision(
       pi,
       delegates,
@@ -139,6 +128,27 @@ export default async function permissionGate(pi: ExtensionAPI) {
       return { block: true, reason };
     }
 
+    const review = describeReview(delegated);
+
+    if (!ctx.hasUI) {
+      const reason = review
+        ? `Dangerous command blocked (no UI to confirm): ${safety.reason}. ${review}`
+        : `Dangerous command blocked (no UI to confirm): ${safety.reason}`;
+      emitActionBlocked(pi, {
+        feature: "permissionGate",
+        action: safety.action,
+        reason,
+        block: {
+          source: "nonInteractive",
+          metadata: delegated
+            ? { risk: safety.metadata, delegation: delegated }
+            : safety.metadata,
+        },
+        context: { toolName: "bash", input: event.input },
+      });
+      return { block: true, reason };
+    }
+
     const promptOpened = createPromptOpenedPayload({
       feature: "permissionGate",
       action: safety.action,
@@ -154,7 +164,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
     let result: ConfirmResult;
     try {
       const customResult = await ctx.ui.custom<ConfirmResult>(
-        createPermissionGateConfirmComponent(command, safety.reason),
+        createPermissionGateConfirmComponent(command, safety.reason, review),
         {
           blocked: {
             kind: "permission",
@@ -166,7 +176,9 @@ export default async function permissionGate(pi: ExtensionAPI) {
       if (customResult === undefined) {
         const indentedCommand = command.replace(/^/gm, "    ");
         const selection = await ctx.ui.select(
-          `Dangerous command: ${safety.reason}\n\n${indentedCommand}`,
+          `Dangerous command: ${safety.reason}${
+            review ? `\n${review}` : ""
+          }\n\n${indentedCommand}`,
           ["Allow once", "Allow for session", "Deny", "Decline and stop"],
         );
         if (selection === "Allow once") result = "allow";

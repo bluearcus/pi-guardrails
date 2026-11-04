@@ -12,6 +12,7 @@ import { configLoader } from "../../src/shared/config";
 import {
   createDelegateRoster,
   delegateDecision,
+  describeReview,
   registerDecisionEntryRenderer,
 } from "../../src/shared/delegation";
 import {
@@ -74,6 +75,7 @@ export default async function pathAccess(pi: ExtensionAPI) {
   setupLegacyPromptEventAlias(pi, "pathAccess");
   registerDecisionEntryRenderer(pi);
   const delegates = createDelegateRoster(pi);
+  const hasDelegates = () => delegates.list().length > 0;
 
   pi.on("tool_call", async (event, ctx) => {
     const config = configLoader.getConfig();
@@ -113,6 +115,7 @@ export default async function pathAccess(pi: ExtensionAPI) {
           ...pendingAllowedPaths(acceptedGrants),
         ],
         hasUI: ctx.hasUI,
+        canDelegate: config.pathAccess.mode !== "block" && hasDelegates(),
       };
       return checkAction(
         { kind: "file", path: absolutePath, origin: event.toolName },
@@ -125,13 +128,13 @@ export default async function pathAccess(pi: ExtensionAPI) {
       const safety = await checkTarget(absolutePath);
       if (safety.kind === "safe") continue;
 
-      if (config.pathAccess.mode === "block" || !ctx.hasUI) {
+      if (config.pathAccess.mode === "block") {
         emitActionBlocked(pi, {
           feature: "pathAccess",
           action: safety.action,
           reason: safety.reason,
           block: {
-            source: ctx.hasUI ? "policy" : "nonInteractive",
+            source: "policy",
             metadata: safety.metadata,
           },
           context: { toolName: event.toolName, input },
@@ -187,6 +190,26 @@ export default async function pathAccess(pi: ExtensionAPI) {
       const safety = await checkTarget(absolutePath);
       if (safety.kind === "safe") continue;
 
+      const review = describeReview(delegated);
+      if (!ctx.hasUI) {
+        const reason = review
+          ? `Blocked (no UI to confirm): ${safety.reason} ${review}`
+          : safety.reason;
+        emitActionBlocked(pi, {
+          feature: "pathAccess",
+          action: safety.action,
+          reason,
+          block: {
+            source: "nonInteractive",
+            metadata: delegated
+              ? { risk: safety.metadata, delegation: delegated }
+              : safety.metadata,
+          },
+          context: { toolName: event.toolName, input },
+        });
+        return { block: true, reason };
+      }
+
       const parentDir = dirname(absolutePath);
       const showFileOptions =
         event.toolName !== "ls" && event.toolName !== "find";
@@ -216,7 +239,7 @@ export default async function pathAccess(pi: ExtensionAPI) {
             normalizeForDisplay(parentDir, ctx.cwd),
             ctx.cwd,
             showFileOptions,
-            { command: bashCommand, dirGrantable, alwaysEnabled },
+            { command: bashCommand, dirGrantable, alwaysEnabled, review },
           ),
           {
             blocked: {
@@ -244,7 +267,9 @@ export default async function pathAccess(pi: ExtensionAPI) {
             ? "\nDirectory grants apply to the parent directory."
             : "";
           const selection = await ctx.ui.select(
-            `Allow access to ${safety.metadata.displayPath}? (outside ${ctx.cwd})${dirNote}`,
+            `Allow access to ${safety.metadata.displayPath}? (outside ${ctx.cwd})${dirNote}${
+              review ? `\n${review}` : ""
+            }`,
             options.map((option) => option.label),
           );
           result =

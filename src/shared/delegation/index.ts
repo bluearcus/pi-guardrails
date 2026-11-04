@@ -20,6 +20,7 @@ export {
   renderDecisionEntry,
 } from "./entry";
 export { DelegationProgress } from "./progress";
+export { describeReview } from "./review";
 export {
   createDelegateRoster,
   type DelegateRoster,

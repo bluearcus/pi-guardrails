@@ -43,7 +43,7 @@ vi.mock("./targets", () => ({
   isReadOnlyTool: vi.fn(() => true),
 }));
 
-async function setup(decide: GuardrailsDelegate["decide"]) {
+async function setup(decide?: GuardrailsDelegate["decide"]) {
   const bus = createEventBus();
   const handlers = new Map<string, (...args: never[]) => unknown>();
   const appendEntry = vi.fn();
@@ -58,7 +58,9 @@ async function setup(decide: GuardrailsDelegate["decide"]) {
 
   const decideSpy = vi.fn(decide);
   await pathAccess(pi);
-  registerDelegate(pi, { id: "test", name: "test", decide: decideSpy });
+  if (decide) {
+    registerDelegate(pi, { id: "test", name: "test", decide: decideSpy });
+  }
 
   const custom = vi.fn(async () => "allow-file-once");
   const ctx = {
@@ -75,7 +77,7 @@ async function setup(decide: GuardrailsDelegate["decide"]) {
     event: ToolCallEvent,
     ctx: ExtensionContext,
   ) => Promise<unknown>;
-  const run = () =>
+  const run = (context: ExtensionContext = ctx) =>
     toolCall(
       {
         type: "tool_call",
@@ -83,10 +85,10 @@ async function setup(decide: GuardrailsDelegate["decide"]) {
         toolName: "read",
         input: { path: "/outside/a.txt" },
       } as ToolCallEvent,
-      ctx,
+      context,
     );
 
-  return { run, custom, appendEntry, decideSpy };
+  return { run, ctx, custom, appendEntry, decideSpy };
 }
 
 describe("path access delegation", () => {
@@ -180,5 +182,48 @@ describe("path access delegation", () => {
     }));
     await expect(run()).resolves.toMatchObject({ block: true });
     expect(decideSpy).not.toHaveBeenCalled();
+  });
+
+  it("lets delegates decide outside a workspace without a UI", async () => {
+    const { run, ctx, decideSpy } = await setup(() => ({
+      verdict: "allow",
+      reason: "requested",
+    }));
+
+    await expect(
+      run({ ...ctx, hasUI: false } as ExtensionContext),
+    ).resolves.toBeUndefined();
+    expect(decideSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("blocks without a UI when a delegate asks, quoting its reasoning", async () => {
+    const { run, ctx } = await setup(() => ({
+      verdict: "ask",
+      reason: "unclear whether your request covers this",
+    }));
+
+    const headless = { ...ctx, hasUI: false } as ExtensionContext;
+    const outcome = await run(headless);
+    const result = outcome as { block: boolean; reason: string };
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("Blocked (no UI to confirm)");
+    expect(result.reason).toContain("/outside/a.txt");
+    expect(result.reason).toContain("Model review");
+    expect(result.reason).toContain(
+      "test: unclear whether your request covers this",
+    );
+  });
+
+  it("keeps the plain no-UI block while delegates are still registering", async () => {
+    const { run, ctx } = await setup(undefined);
+
+    const headless = { ...ctx, hasUI: false } as ExtensionContext;
+    const outcome = await run(headless);
+    const result = outcome as { block: boolean; reason: string };
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("no UI to confirm");
+    expect(result.reason).not.toContain("Model review");
   });
 });

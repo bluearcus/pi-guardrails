@@ -12,7 +12,7 @@ Only actions that would prompt reach delegates.
 permission-gate / path-access  tool_call
 ├─ session grants, auto-deny, policies, safe checks   unchanged; delegates never see these
 ├─ nothing would prompt                               unchanged; no delegation
-│    (requireConfirmation off, pathAccess "block", print/JSON mode)
+│    (requireConfirmation off, pathAccess "block")
 ├─ delegateDecision()                                 src/shared/delegation/dispatch.ts
 │  ├─ roster.list(): enabled delegates (none → prompt as usual)
 │  ├─ runDelegates(): all in parallel, shared deadline (delegation.timeoutMs)
@@ -22,8 +22,14 @@ permission-gate / path-access  tool_call
 │  └─ emit guardrails:decision:delegated
 ├─ allow → the tool runs, no prompt
 ├─ block → { block: true }, guardrails:action:blocked with block.source "delegate"
-└─ ask   → the usual prompt (RPC uses its select dialog)
+└─ ask   → the usual prompt (RPC uses its select dialog), carrying the
+           delegates' reasoning; with no UI it is the headless block instead
 ```
+
+Delegates are consulted whether or not there is a UI. In `pi -p`, JSON, and RPC
+sessions an allow runs the action and a block blocks it; anything else falls
+back to the block that feature would already have given you, now with the
+reviewers' reasoning attached.
 
 Merge rule:
 
@@ -111,6 +117,15 @@ instead. It is still ordinary extension code and can use its own `pi` API.
 
   Expanding it (the tool expand key, or a click) adds the flagged reason and
   one line per delegate with its verdict, reason, and time.
+
+- When an escalated action still asks you, the delegates' reasoning comes with
+  it. The permission-gate prompt puts `Model review (2.4s): classifier: leaned
+  in scope, but not confidently enough (82%)` between the command and "Allow
+  execution?"; path-access puts it under the path lines. The select fallback
+  used in RPC mode carries the same line.
+- A headless block says the same thing to the model: `Dangerous command blocked
+  (no UI to confirm): recursive force delete. Model review (2.4s): classifier:
+  outside what you asked for, impact 3.0/4`.
 
 ## Events
 
