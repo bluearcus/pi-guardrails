@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
     timeoutMs: 10000,
   },
   classifier: {
-    models: ["typesafe/jev-latest"],
+    models: ["opencode-go/deepseek-v4.1-flash"],
     strategy: "fallback",
     chat: { ...DEFAULT_CHAT_REVIEW },
   },

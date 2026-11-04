@@ -470,12 +470,12 @@ describe("delegation and classifier resolution", () => {
     return configLoader.getConfig();
   }
 
-  it("defaults to a disabled classifier with the built-in model", async () => {
+  it("defaults to a disabled classifier with the fork's reviewer model", async () => {
     const config = await load("/tmp/pi-agent-delegation-defaults");
     expect(config.features.classifier).toBe(false);
     expect(config.delegation.timeoutMs).toBe(10000);
     expect(config.classifier).toEqual({
-      models: ["typesafe/jev-latest"],
+      models: ["opencode-go/deepseek-v4.1-flash"],
       strategy: "fallback",
       chat: { maxTokens: 1024, reasoning: "off", instructions: "" },
     });

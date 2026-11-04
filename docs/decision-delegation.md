@@ -145,17 +145,19 @@ The answers map to a verdict with fixed thresholds
 {
   "features": { "classifier": true },
   "classifier": {
-    "models": ["typesafe/jev-latest", "google/gemini-3.1-flash-lite"],
+    "models": ["opencode-go/deepseek-v4.1-flash"],
     "strategy": "fallback",
     "chat": { "maxTokens": 1024, "reasoning": "off" }
   }
 }
 ```
 
-`models` are `provider/model`; the first `/` separates the provider. With
-several models, `strategy` is `fallback` (the first model that answers
-decides), `random` (fallback from a random start), or `consensus` (every model
-must allow; any block blocks).
+`models` are `provider/model`; the first `/` separates the provider. This fork
+defaults the list to `opencode-go/deepseek-v4.1-flash`, a chat model, so the
+reviewer offloads decisions to opencode-go by default. With several models,
+`strategy` is `fallback` (the first model that answers decides), `random`
+(fallback from a random start), or `consensus` (every model must allow; any
+block blocks).
 
 ### Classifier models and chat models
 

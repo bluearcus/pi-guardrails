@@ -8,6 +8,10 @@ catalogue classifier keeps Pi's `classify()` API, anything else is asked the
 same rubric as a chat model and answers JSON. See
 [docs/decision-delegation.md](docs/decision-delegation.md#built-in-model-reviewer).
 
+Fork default: `classifier.models` is `opencode-go/deepseek-v4.1-flash` rather
+than upstream's `typesafe/jev-latest` (`src/shared/config/defaults.ts`). The
+reviewer itself stays off until `features.classifier` is enabled.
+
 ## Remotes
 
 ```text

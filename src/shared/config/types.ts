@@ -137,10 +137,10 @@ export interface DelegationConfig {
 
 export interface ClassifierConfig {
   /**
-   * Reviewer models as `provider/model` (e.g. `typesafe/jev-latest`,
-   * `google/gemini-3.1-flash-lite`). The first `/` separates the provider from
-   * the model id. A model the catalogue lists as a classifier answers through
-   * Pi's classify API; any other model is asked as a chat model.
+   * Reviewer models as `provider/model` (e.g. `opencode-go/deepseek-v4.1-flash`,
+   * `typesafe/jev-latest`). The first `/` separates the provider from the model
+   * id. A model the catalogue lists as a classifier answers through Pi's
+   * classify API; any other model is asked as a chat model.
    */
   models?: string[];
   /** How to use several models. Default: "fallback". */
