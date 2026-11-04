@@ -12,6 +12,13 @@ Fork default: `classifier.models` is `opencode-go/deepseek-v4.1-flash` rather
 than upstream's `typesafe/jev-latest` (`src/shared/config/defaults.ts`). The
 reviewer itself stays off until `features.classifier` is enabled.
 
+Fork behavior change: upstream blocks a flagged command in print/JSON mode
+before consulting delegates. Here delegates are consulted first in both
+permission-gate and path-access, so a headless session can get a reviewed allow
+or block. When merging upstream, keep `delegateDecision()` ahead of the
+`!ctx.hasUI` branch and `PathAccessState.canDelegate` ahead of the core's
+no-UI denial.
+
 ## Remotes
 
 ```text

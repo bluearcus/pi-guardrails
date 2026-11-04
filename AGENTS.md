@@ -16,6 +16,7 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
 - Runtime code handles only current config/core shapes. Old shapes belong exclusively in migrations; do not add runtime compatibility branches for legacy config.
 - `config.version` is a schema marker for debugging/inspection, not the package version.
 - Events emitted on the Pi event bus for inter-extension communication are defined in `src/shared/events.ts`. Keep the public event contract backwards-compatible; `guardrails:action:prompted` exists only as a deprecated alias of `guardrails:prompt:opened`.
+- Decision delegates run before every fallback that needs no input: in permission-gate and path-access, `delegateDecision()` sits between the deterministic checks and both the confirm prompt and the no-UI block, so headless sessions get the same allow or block. `describeReview()` in `src/shared/delegation` renders the delegates' reasoning wherever an escalated action surfaces — prompts, select fallbacks, headless block reasons.
 
 ## Documentation triggers
 
