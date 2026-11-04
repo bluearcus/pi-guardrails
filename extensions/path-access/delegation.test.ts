@@ -215,6 +215,21 @@ describe("path access delegation", () => {
     );
   });
 
+  it("blocks without a UI when a delegate runs out of time", async () => {
+    const { run, ctx } = await setup(async () => {
+      await new Promise(() => undefined);
+      return undefined;
+    });
+
+    const headless = { ...ctx, hasUI: false } as ExtensionContext;
+    const outcome = await run(headless);
+    const result = outcome as { block: boolean; reason: string };
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain("Blocked (no UI to confirm)");
+    expect(result.reason).toContain("test timed out");
+  });
+
   it("keeps the plain no-UI block while delegates are still registering", async () => {
     const { run, ctx } = await setup(undefined);
 

@@ -285,6 +285,23 @@ describe("permission gate delegation", () => {
     );
   });
 
+  it("blocks in headless when the reviewer runs out of time", async () => {
+    const { run, ctx } = await setup(async () => {
+      await new Promise(() => undefined);
+      return undefined;
+    });
+
+    const headless = { ...ctx, hasUI: false } as ExtensionContext;
+    const outcome = await run("dangerous-cmd", headless);
+    const result = outcome as { block: boolean; reason: string };
+
+    expect(result.block).toBe(true);
+    expect(result.reason).toContain(
+      "Dangerous command blocked (no UI to confirm): test danger",
+    );
+    expect(result.reason).toContain("test timed out");
+  });
+
   it("keeps the plain print/JSON block when no delegate is registered", async () => {
     const { run, ctx, appendEntry } = await setup();
 
