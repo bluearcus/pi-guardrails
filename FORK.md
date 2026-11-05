@@ -64,7 +64,9 @@ Three independent paths:
    `pnpm upstream:check || echo "merge upstream before shipping"`.
 2. **On GitHub** — `.github/workflows/upstream-sync.yml` runs daily (and on
    manual dispatch), and opens or updates one issue labelled `upstream-sync`
-   listing the commits to merge. GitHub notifies you on that issue. Scheduled
+   listing the commits to merge. GitHub notifies you on that issue. This needs
+   **Issues enabled on the fork** (Settings → General → Features → Issues —
+   forks start with them off), otherwise the `gh issue` step fails. Scheduled
    workflows are suspended on repositories with no push for 60 days, so push at
    least every two months, or run the workflow manually.
 3. **Inside Pi** — `tools/upstream-watch.ts` checks at session start and adds an
@@ -80,6 +82,18 @@ Three independent paths:
      "repos": ["/home/mike/Sync/Projects/PiCodingHarness/pi-guardrails"]
    }
    ```
+
+## Workflows
+
+| workflow | state |
+|---|---|
+| `ci.yml` | upstream's, kept — runs typecheck, tests, lint, schema freshness on every push and PR |
+| `upstream-sync.yml` | this fork's, added — the upstream notification described above |
+| `publish.yml` | **removed** — it delegates to `aliou/actions/.github/workflows/publish.yml` with aliou's secrets and would publish `@aliou/pi-guardrails` to npm. On a fork it failed after every CI run |
+| `check-release.yml` | **removed** — upstream's npm release checker, also a `aliou/actions` reusable workflow |
+
+Merging upstream restores the two removed files unless you drop them again:
+check `.github/workflows/` after every merge.
 
 ## Merging upstream
 
