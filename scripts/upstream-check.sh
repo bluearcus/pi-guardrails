@@ -16,8 +16,8 @@ if [ "${1:-}" = "--porcelain" ]; then
 fi
 
 if ! git remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
-	echo "upstream-check: no '$UPSTREAM_REMOTE' remote. Add it with:" >&2
-	echo "  git remote add $UPSTREAM_REMOTE https://github.com/aliou/pi-guardrails" >&2
+	echo "upstream-check: no '$UPSTREAM_REMOTE' remote. Add the repository this fork was forked from:" >&2
+	echo "  git remote add $UPSTREAM_REMOTE <upstream repo url>" >&2
 	exit 2
 fi
 
