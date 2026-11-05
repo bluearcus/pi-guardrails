@@ -478,7 +478,7 @@ describe("delegation and classifier resolution", () => {
       models: ["opencode-go/deepseek-v4.1-flash"],
       strategy: "fallback",
       chat: {
-        maxTokens: 1024,
+        maxTokens: 4096,
         reasoning: "off",
         instructions: "",
         allowConfidence: 0.8,
@@ -497,10 +497,10 @@ describe("delegation and classifier resolution", () => {
     [256, 256],
     [1024.6, 1025],
     [120000, 8192],
-    [0, 1024],
-    [-4, 1024],
-    ["lots", 1024],
-    [undefined, 1024],
+    [0, 4096],
+    [-4, 4096],
+    ["lots", 4096],
+    [undefined, 4096],
   ])(
     "bounds classifier.chat.maxTokens %j to %j",
     async (maxTokens, expected) => {

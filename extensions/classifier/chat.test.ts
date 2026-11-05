@@ -286,6 +286,31 @@ describe("chatReviewOutcome", () => {
     expect(outcome.errorMessage).toContain("cut off by the output limit");
   });
 
+  it("reads the answers that arrived before the cut", () => {
+    const partial =
+      '{"context_sufficiency": {"answer": true, "confidence": 0.9}, ' +
+      '"authorization": {"answer": "in_scope", "confidence": 0.9}, ' +
+      '"impact": {"answer": 1, "confidence": 0.8}, ' +
+      '"explanation": "removes a generated dependen';
+    const outcome = chatReviewOutcome(textMessage(partial, "length"));
+    expect(outcome.stopReason).toBe("stop");
+    expect(outcome.answers?.impact).toEqual({
+      type: "score",
+      score: 1,
+      confidence: 0.8,
+    });
+  });
+
+  it("escalates when the cut dropped an answer", () => {
+    const partial =
+      '{"context_sufficiency": {"answer": true, "confidence": 0.9}, ' +
+      '"authorization": {"answer": "in_scope", "confidence": 0.9}, ' +
+      '"impact": {"answer';
+    const outcome = chatReviewOutcome(textMessage(partial, "length"));
+    expect(outcome.stopReason).toBe("error");
+    expect(outcome.errorMessage).toContain("cut off by the output limit");
+  });
+
   it("reports a text-free response", () => {
     const outcome = chatReviewOutcome({
       content: [{ type: "thinking", text: "hmm" }],
@@ -297,8 +322,8 @@ describe("chatReviewOutcome", () => {
 });
 
 describe("chatReviewOptions", () => {
-  it("defaults to a small output budget and no thinking", () => {
-    expect(chatReviewOptions()).toEqual({ maxTokens: 1024, reasoning: "off" });
+  it("defaults to an output budget that covers reasoning", () => {
+    expect(chatReviewOptions()).toEqual({ maxTokens: 4096, reasoning: "off" });
   });
 
   it("caps the output budget", () => {
@@ -311,7 +336,7 @@ describe("chatReviewOptions", () => {
 
   it("carries the conversation id when one is given", () => {
     expect(chatReviewOptions({ sessionId: "session-1" })).toEqual({
-      maxTokens: 1024,
+      maxTokens: 4096,
       reasoning: "off",
       sessionId: "session-1",
     });
@@ -371,7 +396,7 @@ describe("reviewWithChatModel", () => {
     expect(streamSimple).toHaveBeenCalledWith(
       { id: "gemini" },
       expect.objectContaining({ systemPrompt: expect.any(String) }),
-      { maxTokens: 1024, reasoning: "off" },
+      { maxTokens: 4096, reasoning: "off" },
     );
   });
 

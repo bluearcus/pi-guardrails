@@ -361,6 +361,83 @@ export function parseChatReview(text: string): ParsedChatReview {
   };
 }
 
+/**
+ * A review cut off by the output limit usually stops inside its own JSON
+ * object. Close what the stream left open, then fall back to the entries that
+ * did arrive: reasoning that ran past the limit should not discard an answer
+ * that is already complete. `parseChatReview` still rejects an answer missing a
+ * question, so only a fragment carrying every answer is used.
+ */
+export function truncatedJsonCandidates(text: string): string[] {
+  const body = stripFences(text);
+  const start = body.indexOf("{");
+  if (start < 0) return [];
+
+  const closers: string[] = [];
+  const cutPoints: { index: number; closers: string[] }[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < body.length; index++) {
+    const char = body[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") closers.push("}");
+    else if (char === "[") closers.push("]");
+    else if (char === "}" || char === "]") closers.pop();
+    else if (char === "," && closers.length === 1)
+      cutPoints.push({ index, closers: [...closers] });
+  }
+
+  const closeFragment = (
+    fragment: string,
+    stack: string[],
+    openString: boolean,
+  ): string => {
+    let candidate = fragment;
+    if (candidate.endsWith("\\")) candidate = candidate.slice(0, -1);
+    if (openString) candidate += '"';
+    // A key or separator the cut left hanging has no value to read.
+    candidate = candidate.replace(/,+\s*$/, "");
+    candidate = candidate.replace(/,+\s*"[^"]*"\s*:?\s*$/, "");
+    return candidate + [...stack].reverse().join("");
+  };
+
+  const candidates = [
+    closeFragment(body.slice(start), closers, inString || escaped),
+  ];
+  for (
+    let index = cutPoints.length - 1;
+    index >= 0 && candidates.length < 6;
+    index--
+  ) {
+    const cut = cutPoints[index];
+    candidates.push(
+      closeFragment(body.slice(start, cut.index), cut.closers, false),
+    );
+  }
+  return candidates;
+}
+
+function parseTruncatedReview(text: string): ParsedChatReview {
+  for (const candidate of truncatedJsonCandidates(text)) {
+    const parsed = parseChatReview(candidate);
+    if (parsed.ok) return parsed;
+  }
+  return parseChatReview(text);
+}
+
 export interface ChatReviewOutcome extends ClassifierOutcome {
   explanation?: string;
 }
@@ -396,7 +473,7 @@ export function chatReviewOutcome(
     };
   }
 
-  const parsed = parseChatReview(text);
+  const parsed = truncated ? parseTruncatedReview(text) : parseChatReview(text);
   if (!parsed.ok) {
     return {
       stopReason: "error",

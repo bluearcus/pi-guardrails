@@ -14,7 +14,11 @@ export const CHAT_REVIEW_REASONING_LEVELS: readonly ChatReviewReasoning[] = [
 export const MAX_CHAT_REVIEW_MAX_TOKENS = 8192;
 
 export const DEFAULT_CHAT_REVIEW = {
-  maxTokens: 1024,
+  /**
+   * On thinking models the reasoning and the answer share one output budget, so
+   * the default has to cover the reviewer's reasoning as well as its JSON.
+   */
+  maxTokens: 4096,
   reasoning: "off" as ChatReviewReasoning,
   instructions: "",
   allowConfidence: 0.8,

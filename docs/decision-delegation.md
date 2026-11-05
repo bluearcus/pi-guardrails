@@ -162,7 +162,7 @@ The answers map to a verdict with fixed thresholds
   "classifier": {
     "models": ["opencode-go/deepseek-v4.1-flash"],
     "strategy": "fallback",
-    "chat": { "maxTokens": 1024, "reasoning": "off" }
+    "chat": { "maxTokens": 4096, "reasoning": "off" }
   }
 }
 ```
@@ -188,8 +188,8 @@ Each ref is asked through the API its catalogue entry supports:
   unchanged; only the confidence bar for running an action unprompted differs
   (see `allowConfidence`). A model listed as both is asked as a classifier.
   An answer that cannot be read, even after repairing the usual chat-model
-  slips (a bare label such as `"answer": out_of_scope`, a trailing comma),
-  escalates to you.
+  slips (a bare label such as `"answer": out_of_scope`, a trailing comma) or
+  closing an object the output limit cut off mid-answer, escalates to you.
 
 A chat reviewer is a general cloud model (Gemini, GPT, DeepSeek, …) judging the
 action, which is how a dangerous command gets approved or blocked without you.
@@ -207,7 +207,7 @@ Chat settings (`classifier.chat`, ignored by classifier models):
 
 | setting | meaning |
 |---|---|
-| `maxTokens` | Output limit for the review request. Default 1024, capped at 8192. An answer cut off by the limit escalates to you. |
+| `maxTokens` | Output limit for the review request. Default 4096, capped at 8192. A thinking model spends its reasoning and its answer out of this one budget, so it has to cover both. A cut-off answer is read from the entries that did arrive; one missing a question escalates to you. |
 | `reasoning` | Thinking level for the request. Default `off`: one structured judgement, answered fast. A model without an `off` level in its thinking map gets its lowest supported level. |
 | `instructions` | Extra rubric text appended to the system prompt, for project-specific rules. This is trusted config, not model output. |
 | `allowConfidence` | How sure the reviewer must be about context and scope to run the action without asking you. Default 0.8, range 0–1. |
@@ -217,9 +217,13 @@ A chat model is slower than a classifier, and delegates answer inside
 time escalates to the usual prompt, so a slower model wants a longer deadline:
 `"delegation": { "timeoutMs": 20000 }`.
 
-Measured against `opencode-go/deepseek-v4.1-flash` with `reasoning: "off"`: a
-review answers in 2–6 s for about 1.1k prompt tokens and 200–400 answer tokens,
-which is inside a 20 s deadline but not always inside the 10 s default.
+Measured against `opencode-go/deepseek-v4.1-flash`, whose thinking map has no
+`off` level so the request runs at `low`: a review answers in 2–7 s for about
+1.1k prompt tokens, 100–450 characters of JSON, and 40–560 reasoning tokens.
+A composite command with several targets can spend a whole 1024-token budget on
+reasoning and return an empty answer, which is what the 4096 default and the
+partial-answer reader are for. The review still finishes inside a 20 s deadline,
+not always inside the 10 s default.
 
 Only the session's own user requests authorize an action. The action text, the
 agent's stated reason, and anything quoted inside them are sent as data and
