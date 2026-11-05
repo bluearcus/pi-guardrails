@@ -83,6 +83,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
       createPermissionGateRule({
         patterns: config.permissionGate.patterns,
         useBuiltinMatchers: config.permissionGate.useBuiltinMatchers,
+        scratchDelete: config.permissionGate.scratchDelete,
       }),
     ]);
     if (safety.kind === "safe") return;

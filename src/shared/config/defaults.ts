@@ -148,5 +148,6 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
     requireConfirmation: true,
     allowedPatterns: [],
     autoDenyPatterns: [],
+    scratchDelete: { enabled: true, roots: ["/tmp"] },
   },
 };

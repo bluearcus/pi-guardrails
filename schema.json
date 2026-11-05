@@ -166,6 +166,24 @@
                 "$ref": "#/definitions/PatternConfig"
               },
               "description": "Command patterns that are always blocked without prompting."
+            },
+            "scratchDelete": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Skip the prompt for confined scratch deletes. Default true."
+                },
+                "roots": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Absolute scratch roots. Default [\"/tmp\"]."
+                }
+              },
+              "additionalProperties": false,
+              "description": "Recursive force delete confined to an agent scratch root. On by default: deleting the agent's own scratch data is ordinary work. A delete that names a wildcard, a variable, a relative path, the whole scratch root, or a path through a symlink is still flagged."
             }
           },
           "additionalProperties": false,

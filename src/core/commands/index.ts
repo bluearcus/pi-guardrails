@@ -13,3 +13,9 @@ export {
   compileCommandPatterns,
   matchDangerousCommand,
 } from "./dangerous";
+export type { ScratchDeleteScope, ScratchDeleteVerdict } from "./scratch";
+export {
+  classifyScratchDelete,
+  normalizeScratchRoots,
+  RECURSIVE_FORCE_DELETE,
+} from "./scratch";

@@ -50,6 +50,8 @@ Detects dangerous bash commands before they run — recursive deletes, privilege
 
 Command, policy, and path checks also look inside command and process substitutions, so a risky call wrapped in `$(...)` is still caught.
 
+**Recursive deletes inside the agent's scratch root are not flagged.** `rm -rf /tmp/build` removes working data the agent made for the current task, so a delete whose every target sits inside a scratch root — `/tmp` by default, set in `permissionGate.scratchDelete.roots` — runs without a prompt or a review. The exemption is refused whenever the delete could leave that root: a relative target, a wildcard or variable, the scratch root itself, or a path that passes through a symlink. A command that cannot be parsed into structure is never excused, and `sudo rm -rf /tmp/x` is still flagged as a privileged command. Switch it off with Settings → Permission Gate → Scratch deletes to be asked about every recursive delete.
+
 [![Guardrails permission gate walkthrough](https://assets.aliou.me/github/aliou/pi-guardrails/v0.22.0/permission-gate.gif)](https://assets.aliou.me/github/aliou/pi-guardrails/v0.22.0/permission-gate.mp4)
 
 ### herdr

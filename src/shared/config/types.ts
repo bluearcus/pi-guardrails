@@ -208,6 +208,18 @@ export interface GuardrailsConfig {
     allowedPatterns?: PatternConfig[];
     /** Command patterns that are always blocked without prompting. */
     autoDenyPatterns?: PatternConfig[];
+    /**
+     * Recursive force delete confined to an agent scratch root. On by default:
+     * deleting the agent's own scratch data is ordinary work. A delete that
+     * names a wildcard, a variable, a relative path, the whole scratch root, or
+     * a path through a symlink is still flagged.
+     */
+    scratchDelete?: {
+      /** Skip the prompt for confined scratch deletes. Default true. */
+      enabled?: boolean;
+      /** Absolute scratch roots. Default ["/tmp"]. */
+      roots?: string[];
+    };
   };
 }
 
@@ -246,5 +258,7 @@ export interface ResolvedConfig {
     requireConfirmation: boolean;
     allowedPatterns: PatternConfig[];
     autoDenyPatterns: PatternConfig[];
+    /** Recursive deletes confined to these roots are not flagged. */
+    scratchDelete: { enabled: boolean; roots: string[] };
   };
 }

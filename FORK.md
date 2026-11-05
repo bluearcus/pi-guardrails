@@ -19,6 +19,16 @@ or block. When merging upstream, keep `delegateDecision()` ahead of the
 `!ctx.hasUI` branch and `PathAccessState.canDelegate` ahead of the core's
 no-UI denial.
 
+Fork behavior change: a recursive force delete whose every target sits inside an
+agent scratch root (`permissionGate.scratchDelete.roots`, default `/tmp`) is not
+flagged at all, because that is the agent's own working data. The exemption is
+structural — `src/core/commands/scratch.ts` — and is refused for a target that
+is relative, a wildcard or variable, the whole scratch root, or a path through a
+symlink, and for any command that had to be matched as text. Upstream flags
+every `rm -rf`. When merging upstream, keep `scratchScope` threaded from
+`createPermissionGateRule` into `checkDangerousCommand` and the exemption inside
+the built-in matcher loop only.
+
 ## Remotes
 
 ```text

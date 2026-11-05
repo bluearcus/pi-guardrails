@@ -372,6 +372,53 @@ describe("permission gate pattern merging across scopes", () => {
   });
 });
 
+describe("permissionGate.scratchDelete", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vol.reset();
+  });
+
+  async function load(dir: string, config?: Record<string, unknown>) {
+    vi.stubEnv("PI_CODING_AGENT_DIR", dir);
+    vol.fromJSON(
+      config
+        ? {
+            [`${dir}/extensions/guardrails.json`]: JSON.stringify({
+              version: pkg.version,
+              ...config,
+            }),
+          }
+        : { [`${dir}/.keep`]: "" },
+    );
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+    return configLoader.getConfig();
+  }
+
+  it("defaults to /tmp and stays on", async () => {
+    const config = await load("/tmp/pi-scratch-delete-defaults");
+    expect(config.permissionGate.scratchDelete).toEqual({
+      enabled: true,
+      roots: ["/tmp"],
+    });
+  });
+
+  it("takes configured roots, drops the filesystem root, and can be switched off", async () => {
+    const config = await load("/tmp/pi-scratch-delete-roots", {
+      permissionGate: {
+        scratchDelete: {
+          enabled: false,
+          roots: ["/tmp", "/var/tmp/", "/", "tmp"],
+        },
+      },
+    });
+    expect(config.permissionGate.scratchDelete).toEqual({
+      enabled: false,
+      roots: ["/tmp", "/var/tmp"],
+    });
+  });
+});
+
 describe("pathAccess.allowedPaths builtin default", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

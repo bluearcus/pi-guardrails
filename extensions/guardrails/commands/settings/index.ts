@@ -686,6 +686,20 @@ export function registerGuardrailsSettings(
               values: ["on", "off"],
             },
             {
+              id: "permissionGate.scratchDelete.enabled",
+              label: "Scratch deletes",
+              description:
+                "Run recursive deletes confined to the scratch root without asking (paths through a link, wildcard, variable, or outside the root still ask)",
+              currentValue:
+                scopedConfig.permissionGate?.scratchDelete?.enabled ===
+                undefined
+                  ? `inherited: ${resolved.permissionGate.scratchDelete.enabled ? "on" : "off"}`
+                  : scopedConfig.permissionGate.scratchDelete.enabled
+                    ? "on"
+                    : "off",
+              values: ["on", "off"],
+            },
+            {
               id: "permissionGate.patterns",
               label: "Dangerous patterns",
               description: "Command patterns that trigger the permission gate",
@@ -773,6 +787,17 @@ export function registerGuardrailsSettings(
         updated.permissionGate = {
           ...updated.permissionGate,
           requireConfirmation: newValue === "on",
+        };
+        return updated;
+      }
+
+      if (id === "permissionGate.scratchDelete.enabled") {
+        updated.permissionGate = {
+          ...updated.permissionGate,
+          scratchDelete: {
+            ...updated.permissionGate?.scratchDelete,
+            enabled: newValue === "on",
+          },
         };
         return updated;
       }

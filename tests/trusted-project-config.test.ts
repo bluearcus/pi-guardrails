@@ -178,7 +178,7 @@ const features = [
     name: "permissionGate",
     setup: permissionGate,
     toolName: "bash",
-    input: { command: "rm -rf /tmp/acme" },
+    input: { command: "rm -rf ./acme-build" },
   },
 ];
 

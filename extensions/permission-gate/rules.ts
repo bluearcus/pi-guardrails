@@ -1,4 +1,5 @@
 import type { Action, Rule } from "../../src/core";
+import type { ScratchDeleteScope } from "../../src/core/commands";
 import { checkDangerousCommand } from "../../src/core/commands";
 import type { DangerousPattern, PatternConfig } from "../../src/shared/config";
 import { compileCommandPatterns } from "../../src/shared/matching";
@@ -12,13 +13,20 @@ export type PermissionGateMeta = {
 export type PermissionGateRuleOptions = {
   patterns: DangerousPattern[];
   useBuiltinMatchers: boolean;
+  /** Recursive deletes confined to these roots are not flagged. */
+  scratchDelete?: { enabled?: boolean; roots?: string[] };
 };
 
 export function createPermissionGateRule({
   patterns,
   useBuiltinMatchers,
+  scratchDelete,
 }: PermissionGateRuleOptions): Rule<PermissionGateMeta> {
   const compiledPatterns = compileCommandPatterns(patterns);
+  const scratchScope: ScratchDeleteScope | undefined =
+    scratchDelete && scratchDelete.enabled !== false
+      ? { roots: scratchDelete.roots ?? [] }
+      : undefined;
 
   return {
     key: "permission-gate.dangerous-command",
@@ -30,6 +38,7 @@ export function createPermissionGateRule({
         patterns: compiledPatterns,
         useBuiltinMatchers,
         fallbackPatterns: patterns,
+        scratchScope,
       });
       if (!match) return { kind: "pass" };
 

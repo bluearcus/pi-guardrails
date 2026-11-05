@@ -17,6 +17,49 @@ describe("createPermissionGateRule", () => {
     });
   });
 
+  it("passes a recursive delete confined to the agent's scratch root", () => {
+    const rule = createPermissionGateRule({
+      patterns: [{ pattern: "rm -rf", description: "recursive force delete" }],
+      useBuiltinMatchers: true,
+      scratchDelete: { enabled: true, roots: ["/tmp"] },
+    });
+
+    expect(
+      rule.check({
+        kind: "command",
+        command: "rm -rf /tmp/b1 && mkdir -p /tmp/b1/scr && cp a.asm /tmp/b1/",
+      }),
+    ).toEqual({ kind: "pass" });
+  });
+
+  it("flags a scratch delete that could follow a link out of it", async () => {
+    const rule = createPermissionGateRule({
+      patterns: [{ pattern: "rm -rf", description: "recursive force delete" }],
+      useBuiltinMatchers: true,
+      scratchDelete: { enabled: true, roots: ["/tmp"] },
+    });
+
+    const result = await rule.check({
+      kind: "command",
+      command: "rm -rf /tmp/b1/",
+    });
+    expect(result.kind).toBe("match");
+  });
+
+  it("flags scratch deletes when the exemption is disabled", async () => {
+    const rule = createPermissionGateRule({
+      patterns: [],
+      useBuiltinMatchers: true,
+      scratchDelete: { enabled: false, roots: ["/tmp"] },
+    });
+
+    const result = await rule.check({
+      kind: "command",
+      command: "rm -rf /tmp/b1",
+    });
+    expect(result.kind).toBe("match");
+  });
+
   it("matches configured dangerous command patterns", async () => {
     const rule = createPermissionGateRule({
       patterns: [

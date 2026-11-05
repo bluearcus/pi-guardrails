@@ -4,6 +4,7 @@ import {
   type Scope,
 } from "@aliou/pi-utils-settings";
 import pkg from "../../../package.json" with { type: "json" };
+import { normalizeScratchRoots } from "../../core/commands/scratch";
 import type { AllowedPath } from "../../core/paths/path";
 import {
   CHAT_REVIEW_REASONING_LEVELS,
@@ -106,6 +107,20 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
         local?.permissionGate?.autoDenyPatterns,
         memory?.permissionGate?.autoDenyPatterns,
       );
+
+      const scratchDelete =
+        memory?.permissionGate?.scratchDelete ??
+        local?.permissionGate?.scratchDelete ??
+        global?.permissionGate?.scratchDelete;
+      const scratchRoots = scratchDelete?.roots;
+      resolved.permissionGate.scratchDelete = {
+        enabled: scratchDelete?.enabled !== false,
+        roots: normalizeScratchRoots(
+          Array.isArray(scratchRoots) && scratchRoots.length > 0
+            ? scratchRoots
+            : DEFAULT_CONFIG.permissionGate.scratchDelete.roots,
+        ),
+      };
 
       const mergedPaths = new Map<string, AllowedPath>();
       if (resolved.applyBuiltinDefaults) {

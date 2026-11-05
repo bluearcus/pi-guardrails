@@ -1,5 +1,10 @@
 import { parse } from "@aliou/sh";
 import { walkCommands, wordToString } from "../shell/ast";
+import {
+  classifyScratchDelete,
+  RECURSIVE_FORCE_DELETE,
+  type ScratchDeleteScope,
+} from "./scratch";
 
 /**
  * Dangerous command matchers for the permission gate.
@@ -32,6 +37,12 @@ export interface DangerousCommandCheckOptions {
   patterns: readonly CompiledCommandPattern[];
   useBuiltinMatchers: boolean;
   fallbackPatterns: readonly CommandPattern[];
+  /**
+   * When set, a recursive force delete whose every target is inside a scratch
+   * root is not flagged. Only the structural matchers can grant this: a command
+   * that had to be matched as text is not verified well enough to excuse.
+   */
+  scratchScope?: ScratchDeleteScope;
 }
 
 /**
@@ -79,7 +90,7 @@ const rmMatcher: StructuralMatcher = (words) => {
 
   const hasForce = hasShortFlag(words, "f") || hasLongOption(words, "force");
 
-  return hasRecursive && hasForce ? "recursive force delete" : undefined;
+  return hasRecursive && hasForce ? RECURSIVE_FORCE_DELETE : undefined;
 };
 
 /**
@@ -396,11 +407,21 @@ export function compileCommandPatterns(
 
 function matchBuiltinDangerous(
   words: string[],
+  scratchScope?: ScratchDeleteScope,
 ): DangerousCommandMatch | undefined {
   if (words.length === 0) return undefined;
   for (const matcher of BUILTIN_MATCHERS) {
     const description = matcher(words);
-    if (description) return { description, pattern: "(structural)" };
+    if (!description) continue;
+    if (
+      description === RECURSIVE_FORCE_DELETE &&
+      scratchScope &&
+      classifyScratchDelete(words, scratchScope).confined
+    ) {
+      // Deleting the agent's own scratch data is ordinary work, not a risk.
+      continue;
+    }
+    return { description, pattern: "(structural)" };
   }
   return undefined;
 }
@@ -410,6 +431,7 @@ export function checkDangerousCommand({
   patterns,
   useBuiltinMatchers,
   fallbackPatterns,
+  scratchScope,
 }: DangerousCommandCheckOptions): DangerousCommandMatch | undefined {
   let parsedSuccessfully = false;
 
@@ -425,7 +447,7 @@ export function checkDangerousCommand({
           // matchers match on words, not redirect targets.
           if (!cmd) return false;
           const words = (cmd.words ?? []).map(wordToString);
-          const result = matchBuiltinDangerous(words);
+          const result = matchBuiltinDangerous(words, scratchScope);
           if (result) {
             match = result;
             return true;

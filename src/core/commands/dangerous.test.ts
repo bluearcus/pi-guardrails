@@ -548,3 +548,51 @@ describe("matchDangerousCommand", () => {
     expect(result?.pattern).toBe("sudo");
   });
 });
+
+describe("checkDangerousCommand with a scratch delete scope", () => {
+  const scope = { roots: ["/tmp"] };
+
+  function check(command: string, scoped = true) {
+    return checkDangerousCommand({
+      command,
+      patterns: [],
+      useBuiltinMatchers: true,
+      fallbackPatterns: [],
+      scratchScope: scoped ? scope : undefined,
+    });
+  }
+
+  it("does not flag a delete confined to the scratch root", () => {
+    expect(check("rm -rf /tmp/b1")).toBeUndefined();
+    expect(
+      check(
+        "export PATH=/opt/lwasm:$PATH; rm -rf /tmp/b1 && mkdir -p /tmp/b1/scr && cp a.asm /tmp/b1/",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("still flags a delete that leaves the scratch root", () => {
+    for (const command of [
+      "rm -rf /home/mike/Sync",
+      "rm -rf /tmp/b1 && rm -rf ~/src",
+      "rm -rf /tmp/b1/",
+      "rm -rf /tmp/*",
+      "rm -rf /tmp/$DIR",
+      "rm -rf /tmp",
+    ]) {
+      expect(check(command)?.description, command).toBe(
+        "recursive force delete",
+      );
+    }
+  });
+
+  it("does not excuse a privilege escalation that hides the delete", () => {
+    expect(check("sudo rm -rf /tmp/b1")?.description).toBe("superuser command");
+  });
+
+  it("flags scratch deletes when no scope is configured", () => {
+    expect(check("rm -rf /tmp/b1", false)?.description).toBe(
+      "recursive force delete",
+    );
+  });
+});
