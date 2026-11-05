@@ -109,3 +109,6 @@ pnpm changeset               # describe the merge if it changes behaviour
 
 Upstream keeps unreleased work in `.changeset/*.md`; after a merge, run
 `pnpm changeset version` only when you intend to take a release.
+
+Keep the clone complete. A shallow clone miscounts `HEAD..upstream/main` and
+refuses to merge; `git fetch --unshallow` repairs it.
