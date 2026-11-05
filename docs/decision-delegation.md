@@ -194,8 +194,9 @@ Each ref is asked through the API its catalogue entry supports:
   unchanged; only the confidence bar for running an action unprompted differs
   (see `allowConfidence`). A model listed as both is asked as a classifier.
   An answer that cannot be read, even after repairing the usual chat-model
-  slips (a bare label such as `"answer": out_of_scope`, a trailing comma) or
-  closing an object the output limit cut off mid-answer, escalates to you.
+  slips (a bare label such as `"answer": out_of_scope`, a value missing its
+  opening quote such as `"answer": in_scope"`, a trailing comma, or an object
+  the output limit cut off mid-answer), escalates to you.
 
 A chat reviewer is a general cloud model (Gemini, GPT, DeepSeek, …) judging the
 action, which is how a dangerous command gets approved or blocked without you.

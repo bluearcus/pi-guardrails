@@ -260,6 +260,20 @@ describe("parseChatReview", () => {
     expect(parsed.error).toBeTruthy();
   });
 
+  it("repairs a value that lost its opening quote", () => {
+    const damaged =
+      '{\n  "context_sufficiency": {"answer": true, "confidence": 0.75},\n' +
+      '  "authorization": {"answer": in_scope", "confidence": 0.7},\n' +
+      '  "impact": {"answer": 1, "confidence": 0.6},\n' +
+      '  "explanation": "rebuilds a scratch build directory"\n}';
+    const parsed = parseChatReview(damaged);
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(choiceAnswer(parsed.answers, "authorization").choice).toBe(
+      "in_scope",
+    );
+    expect(scoreAnswer(parsed.answers, "impact").score).toBe(1);
+  });
+
   it("clips a long explanation", () => {
     const parsed = parseChatReview(
       JSON.stringify({ ...full, explanation: "x".repeat(500) }),
@@ -307,6 +321,16 @@ describe("chatReviewOutcome", () => {
       score: 1,
       confidence: 0.8,
     });
+  });
+
+  it("reads a cut-off answer that also lost a quote", () => {
+    const partial =
+      '{\n  "context_sufficiency": {"answer": true, "confidence": 0.9},\n' +
+      '  "authorization": {"answer": in_scope", "confidence": 0.85},\n' +
+      '  "impact": {"answer": 1, "confidence": 0.8},\n' +
+      '  "explanation": "replaces the scratch build';
+    const outcome = chatReviewOutcome(textMessage(partial, "length"));
+    expect(outcome.stopReason).toBe("stop");
   });
 
   it("escalates when the cut dropped an answer", () => {

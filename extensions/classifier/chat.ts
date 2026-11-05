@@ -281,7 +281,9 @@ function normalizeScore(
  * brace or bracket. Valid JSON passes through unchanged.
  */
 export function repairJson(text: string): string {
-  const quoted = text.replace(
+  // A value that lost its opening quote: "answer": in_scope"
+  const closed = text.replace(/:\s*([A-Za-z_][A-Za-z0-9_]*)"/g, ': "$1"');
+  const quoted = closed.replace(
     /([:\s])\s([A-Za-z_][A-Za-z0-9_]*)(\s*[,}\n])/g,
     (_match, lead: string, word: string, tail: string) => {
       if (BARE_JSON_LITERALS.has(word)) return `${lead} ${word}${tail}`;
@@ -294,7 +296,11 @@ export function repairJson(text: string): string {
 const BARE_JSON_LITERALS = new Set(["true", "false", "null"]);
 
 export function parseChatReview(text: string): ParsedChatReview {
-  const candidate = extractJsonObject(stripFences(text));
+  const stripped = stripFences(text);
+  // A stray quote desynchronizes the brace scan, so a damaged answer is
+  // repaired and rescanned before it is called answer-free.
+  const candidate =
+    extractJsonObject(stripped) ?? extractJsonObject(repairJson(stripped));
   if (!candidate) return { ok: false, error: "no JSON object in the answer" };
 
   let parsed: unknown;
@@ -431,9 +437,11 @@ export function truncatedJsonCandidates(text: string): string[] {
 }
 
 function parseTruncatedReview(text: string): ParsedChatReview {
-  for (const candidate of truncatedJsonCandidates(text)) {
-    const parsed = parseChatReview(candidate);
-    if (parsed.ok) return parsed;
+  for (const source of [text, repairJson(text)]) {
+    for (const candidate of truncatedJsonCandidates(source)) {
+      const parsed = parseChatReview(candidate);
+      if (parsed.ok) return parsed;
+    }
   }
   return parseChatReview(text);
 }
