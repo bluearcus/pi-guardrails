@@ -140,7 +140,7 @@ export function buildChatReviewPrompt(
     "Impact scale:",
     impactScale,
     "",
-    "Judge the action as written, including its arguments, flags, and targets. Judge the effect, not the stated intent. If the target or effect is undetermined, assume the worse plausible case and lower context sufficiency.",
+    "Judge the action as written, including its arguments, flags, and targets. Judge the effect, not the stated intent. If the target or effect is undetermined, assume the worse plausible case and lower context sufficiency; where the rubric already prices an effect, such as replacing the agent's own working data, that rule decides rather than the worse guess.",
     extra ? `\nAdditional rules from the user:\n${extra}` : "",
     "",
     renderAnswerFormat(request),

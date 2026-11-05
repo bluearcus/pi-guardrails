@@ -59,4 +59,27 @@ describe("buildClassifierRequest", () => {
     });
     expect(request.questions.impact?.instructions).toContain("file access");
   });
+
+  it("prices replacing the agent's own working data as a low impact", () => {
+    const request = buildClassifierRequest({
+      action: {
+        kind: "command",
+        command:
+          "rm -rf /tmp/clone && git clone https://example.org/repo /tmp/clone",
+      },
+      toolName: "bash",
+      cwd: "/workspace",
+      userRequests: ["rebuild the toolchain in a clean clone"],
+      agentClaim: "Replacing the previous scratch clone with a fresh one.",
+      flaggedReason: "recursive force delete",
+    });
+
+    const impact = request.questions.impact;
+    if (impact?.type !== "score") throw new Error("expected a score question");
+    expect(impact.instructions).toContain("the agent's own working data");
+    expect(impact.criteria[1]).toContain(
+      "scratch, clone, build, or cache data for this task",
+    );
+    expect(impact.criteria[2]).toContain("the task still relies on");
+  });
 });

@@ -102,6 +102,14 @@ describe("buildChatReviewPrompt", () => {
     expect(state.guardrail_flag).toBe("recursive force delete");
   });
 
+  it("prices replacing the agent's own working data inside the rubric", () => {
+    const prompt = buildChatReviewPrompt(request);
+    expect(prompt.systemPrompt).toContain("the agent's own working data");
+    expect(prompt.systemPrompt).toContain(
+      "scratch, clone, build, or cache data for this task",
+    );
+  });
+
   it("appends user review instructions when configured", () => {
     const withRules = buildChatReviewPrompt(request, {
       instructions: "never touch the deploy/ directory",
