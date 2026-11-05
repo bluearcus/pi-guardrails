@@ -30,6 +30,5 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
 This checkout is a fork. `origin` is the fork, `upstream` is `aliou/pi-guardrails`.
 
 - `pnpm upstream:check` (or `scripts/upstream-check.sh`) reports upstream commits this fork has not merged, and exits nonzero when there are any.
-- `.github/workflows/upstream-sync.yml` opens one issue on GitHub when upstream is ahead.
-- `tools/upstream-watch.ts` is a personal Pi extension that reports the same thing inside Pi. It is not part of the package manifest, so package users never load it.
-- Upstream's `publish.yml` and `check-release.yml` are deleted here: both delegate to `aliou/actions` reusable workflows and their secrets, so they cannot work on a fork. A merge from upstream restores them — re-check `.github/workflows/` after merging.
+- `tools/upstream-watch.ts` is a personal Pi extension that runs the same check at session start and adds `/upstream`. It is not part of the package manifest, so package users never load it.
+- The workflows `publish.yml`, `check-release.yml` and `upstream-sync.yml` are deleted here: the first two delegate to `aliou/actions` reusable workflows and their secrets, so they cannot work on a fork, and the third notified through an issue while forks have Issues off. A merge from upstream restores them — re-check `.github/workflows/` after merging.

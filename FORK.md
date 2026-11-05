@@ -57,20 +57,13 @@ Keep the `pi.extensions` manifest paths intact.
 
 ## Knowing when upstream moved
 
-Three independent paths:
+Two paths, both local:
 
-1. **On demand, locally** — `pnpm upstream:check`. Prints the unmerged upstream
+1. **On demand** — `pnpm upstream:check`. Prints the unmerged upstream
    commits and exits nonzero when there are any, so it composes in scripts:
    `pnpm upstream:check || echo "merge upstream before shipping"`.
-2. **On GitHub** — `.github/workflows/upstream-sync.yml` runs daily (and on
-   manual dispatch), and opens or updates one issue labelled `upstream-sync`
-   listing the commits to merge. GitHub notifies you on that issue. This needs
-   **Issues enabled on the fork** (Settings → General → Features → Issues —
-   forks start with them off), otherwise the `gh issue` step fails. Scheduled
-   workflows are suspended on repositories with no push for 60 days, so push at
-   least every two months, or run the workflow manually.
-3. **Inside Pi** — `tools/upstream-watch.ts` checks at session start and adds an
-   `/upstream` command:
+2. **Inside Pi** — `tools/upstream-watch.ts` runs that check at session start and
+   adds an `/upstream` command:
 
    ```sh
    pi install <repo>/tools/upstream-watch.ts
@@ -88,11 +81,11 @@ Three independent paths:
 | workflow | state |
 |---|---|
 | `ci.yml` | upstream's, kept — runs typecheck, tests, lint, schema freshness on every push and PR |
-| `upstream-sync.yml` | this fork's, added — the upstream notification described above |
+| `upstream-sync.yml` | **removed** — it notified by opening an issue, and forks have Issues off; the Pi-side watcher and `pnpm upstream:check` cover the same ground |
 | `publish.yml` | **removed** — it delegates to `aliou/actions/.github/workflows/publish.yml` with aliou's secrets and would publish `@aliou/pi-guardrails` to npm. On a fork it failed after every CI run |
 | `check-release.yml` | **removed** — upstream's npm release checker, also a `aliou/actions` reusable workflow |
 
-Merging upstream restores the two removed files unless you drop them again:
+Merging upstream restores the three removed files unless you drop them again:
 check `.github/workflows/` after every merge.
 
 ## Merging upstream
