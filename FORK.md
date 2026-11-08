@@ -130,6 +130,23 @@ an expanding heredoc body, a `<<-` heredoc body, an extglob-wrapped substitution
 heredoc, and an ANSI-C quoted command word. All five are invisible to structural matching without
 these commits.
 
+## The scratch exemption and recovered parses
+
+The exemption is decided from the words a parse produced, so what recovery can and cannot do to a
+word list decides whether it needs a guard. Measured on `@aliou/sh` 0.4.1:
+
+| command | recovered words |
+|---|---|
+| `rm -rf /tmp/x /home/mike/models <<EOF` | `["rm","-rf","/tmp/x","/home/mike/models"]` — every target survives, the outside-scratch one refuses the exemption |
+| `rm -rf /tmp/x /home/mike/models; (` | the same list |
+| `rm -rf /tmp/x "/home/mike/models` | `[]` — no command survives, so no matcher runs and the text fallback patterns decide |
+| `rm -rf /tmp/x /home/mike/models $(` | `["rm","-rf","/tmp/x","/home/mike/models","$(...)"]`, and a `$(...)` word is refused by `classifyScratchDelete` as non-literal |
+
+Recovery either shows every target or loses the command, so the exemption cannot be granted for a
+target the parse did not see, and `checkDangerousCommand` needs no extra condition. If upstream ever
+changes recovery so a command survives with a shortened word list, that condition becomes necessary:
+gate `scratchScope` on `parsedCleanly` in `src/core/commands/dangerous.ts`.
+
 Refused:
 
 | upstream | why |
