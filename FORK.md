@@ -55,11 +55,24 @@ git push -u origin main
 
 ## Running the fork in Pi
 
-From git, which Pi re-fetches at each start or `/reload`:
+From git:
 
 ```sh
 pi install git:github.com/<your-username>/pi-guardrails@main
 ```
+
+Pi clones it to `~/.pi/agent/git/<host>/<path>` and installs its `dependencies` with npm. A start or
+`/reload` **loads** that clone, and re-installs it only when it is missing — moving it to new commits
+is a separate command:
+
+```sh
+pi update git:github.com/<your-username>/pi-guardrails@main   # this package
+pi update --extensions                                       # every package
+```
+
+`pi update` fetches the configured ref, resets the clone, removes the old `node_modules` and
+`package-lock.json`, and reinstalls. A `prepare` script that expects a dev dependency runs there and
+fails quietly — husky prints `husky: not found` and the install carries on.
 
 Or publish under your own npm scope: change `name` (and `repository`) in
 `package.json`, `npm publish`, then `pi install npm:<scope>/pi-guardrails`.
