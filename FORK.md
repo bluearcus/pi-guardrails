@@ -67,13 +67,13 @@ Keep the `pi.extensions` manifest paths intact.
 
 ## Knowing when upstream moved
 
-Two paths, both local:
+Two paths, both local, both reading the verdict ledger `scripts/upstream-ledger.txt`:
 
-1. **On demand** — `pnpm upstream:check`. Prints the unmerged upstream
-   commits and exits nonzero when there are any, so it composes in scripts:
-   `pnpm upstream:check || echo "merge upstream before shipping"`.
-2. **Inside Pi** — `tools/upstream-watch.ts` runs that check at session start and
-   adds an `/upstream` command:
+1. **On demand** — `pnpm upstream:check`. Prints the upstream commits this fork has no verdict on
+   and exits nonzero when there are any, so it composes in scripts:
+   `pnpm upstream:check || echo "decide the upstream commits before shipping"`.
+2. **Inside Pi** — `tools/upstream-watch.ts` runs that check at session start and adds an `/upstream`
+   command:
 
    ```sh
    pi install <repo>/tools/upstream-watch.ts
@@ -85,6 +85,27 @@ Two paths, both local:
      "repos": ["/home/mike/Sync/Projects/PiCodingHarness/pi-guardrails"]
    }
    ```
+
+### The verdict ledger
+
+`git rev-list --count HEAD..upstream/main` counts commits, and a cherry-pick mints a new commit id,
+so a fork that picks individual fixes stays permanently "behind" by that measure. The ledger records
+a verdict for every upstream commit that has been dealt with, and the check subtracts them:
+
+| line | meaning |
+|---|---|
+| `taken <sha> <subject>` | the change is in this fork, usually by cherry-pick |
+| `refused <sha> <subject>` | a decision not to take it, with the reason written below |
+
+```sh
+scripts/upstream-check.sh ledger            # what has been decided
+scripts/upstream-check.sh take <sha>        # record one as brought down
+scripts/upstream-check.sh refuse <sha>      # record a refusal
+scripts/upstream-check.sh forget <sha>      # re-open a decision
+```
+
+An entry whose commit is no longer on `upstream/main` — after a rebase or a force push upstream —
+prints `stale ledger entry` and still counts as undecided, so a rewritten branch cannot hide work.
 
 ## Workflows
 
@@ -106,18 +127,19 @@ where this fork's chat reviewer lives and what `features.classifier` runs. Bring
 commit at a time instead, as below.
 
 ```sh
-pnpm upstream:check          # what is coming
+pnpm upstream:check          # what has no verdict yet
 git fetch upstream
-git merge upstream/main      # conflicts: resolve, keeping the fork's changes
-pnpm install                 # lockfile changes need reconciling
+git cherry-pick <sha>        # one fix
+git cherry-pick --continue   # if a test file overlaps: resolve, keeping the fork's changes
+pnpm install                 # a dependency bump needs the lockfile reconciled
 pnpm typecheck && pnpm test && pnpm lint
 pnpm check:schema            # regenerate if config types changed: pnpm gen:schema
-pnpm changeset               # describe the merge if it changes behaviour
+scripts/upstream-check.sh take <sha>
 ```
 
 ### What has been taken, and what has been refused
 
-Taken by cherry-pick, with `@aliou/sh` moved to `^0.4.1`:
+Taken by cherry-pick, with `@aliou/sh` moved to `^0.4.1` (each recorded in the ledger):
 
 | upstream | fix |
 |---|---|
@@ -147,7 +169,7 @@ target the parse did not see, and `checkDangerousCommand` needs no extra conditi
 changes recovery so a command survives with a shortened word list, that condition becomes necessary:
 gate `scratchScope` on `parsedCleanly` in `src/core/commands/dangerous.ts`.
 
-Refused:
+Refused, each recorded in the ledger with its reason here:
 
 | upstream | why |
 |---|---|
@@ -156,8 +178,8 @@ Refused:
 | `ed66e7a` | shared biome config and `@aliou/pi-utils-ui` `truncateToWidth`: tooling churn plus a new dependency |
 | `3c90104` | npm version bump on upstream's own release line; this fork versions separately |
 
-Upstream keeps unreleased work in `.changeset/*.md`; after a merge, run
-`pnpm changeset version` only when you intend to take a release.
+Upstream keeps unreleased work in `.changeset/*.md`; run `pnpm changeset version` only when you
+intend to take a release.
 
-Keep the clone complete. A shallow clone miscounts `HEAD..upstream/main` and
-refuses to merge; `git fetch --unshallow` repairs it.
+Keep the clone complete. A shallow clone miscounts `HEAD..upstream/main`, so `pnpm upstream:check`
+reports the wrong set and a merge refuses; `git fetch --unshallow` repairs it.

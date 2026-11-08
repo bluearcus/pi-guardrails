@@ -1,0 +1,15 @@
+# Upstream commits this fork has accounted for.
+
+# One line per decision: `<verdict> <sha> <subject>`. The verdict is `taken` (the change is in this
+# fork, usually by cherry-pick) or `refused` (a decision not to take it). The sha is the upstream
+# commit, shortened to 12 characters. `scripts/upstream-check.sh` subtracts these from what upstream
+# has published, so it reports only commits with no decision yet; the reasoning behind each verdict
+# is in FORK.md. Keep the two in step.
+
+taken fd711a6b309c fix(shell): handle AnsiC/LocaleStr parts and structured heredocs from @aliou/sh 0.4.0
+taken d5ca339f5f92 fix(permission-gate): match dangerous commands in recovered parses
+taken 543d263d4a07 fix(permission-gate): activate recovered-parse matching with @aliou/sh 0.4.1
+refused 4b656711d1e5 refactor(classifier): drop the built-in classifier delegate, keep it as an example
+refused 48b6d33f30e7 fix: guard PowerShell tool calls
+refused 3c901045cf9d @aliou/pi-guardrails@0.23.0
+refused ed66e7ac7e20 chore: adopt shared biome config and @aliou/pi-utils-ui truncateToWidth
