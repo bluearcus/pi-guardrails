@@ -32,6 +32,14 @@ export interface DangerousCommandMatch {
   pattern: string;
 }
 
+/**
+ * The `pattern` a built-in structural match reports, as opposed to the pattern
+ * text of a configured pattern. A grant is taken for the rule that flagged the
+ * command, so the two have to be told apart: see `commandClassKey()` in the
+ * permission gate.
+ */
+export const STRUCTURAL_PATTERN = "(structural)";
+
 export interface DangerousCommandCheckOptions {
   command: string;
   patterns: readonly CompiledCommandPattern[];
@@ -421,7 +429,7 @@ function matchBuiltinDangerous(
       // Deleting the agent's own scratch data is ordinary work, not a risk.
       continue;
     }
-    return { description, pattern: "(structural)" };
+    return { description, pattern: STRUCTURAL_PATTERN };
   }
   return undefined;
 }

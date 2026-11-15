@@ -15,14 +15,23 @@ import { GUARDRAILS_ACTION_BLOCKED_EVENT } from "../../src/shared/events";
 import { NOOP_THEME } from "../../tests/utils/theme";
 import permissionGate from "./index";
 
-const state: { autoDeny: string[]; requireConfirmation: boolean } = {
+const state: {
+  autoDeny: string[];
+  allowClasses: string[];
+  requireConfirmation: boolean;
+} = {
   autoDeny: [],
+  allowClasses: [],
   requireConfirmation: true,
 };
 
 vi.mock("../../src/shared/config", () => ({
   configLoader: {
     load: vi.fn(async () => undefined),
+    getProjectState: vi.fn(() => "trusted"),
+    getRawConfig: vi.fn(() => null),
+    getScopePath: vi.fn(() => null),
+    save: vi.fn(async () => undefined),
     getConfig: vi.fn(
       () =>
         ({
@@ -37,6 +46,8 @@ vi.mock("../../src/shared/config", () => ({
             requireConfirmation: state.requireConfirmation,
             allowedPatterns: [],
             autoDenyPatterns: state.autoDeny.map((pattern) => ({ pattern })),
+            allowedClasses: state.allowClasses ?? [],
+            alwaysScope: "local",
           },
         }) as unknown as ResolvedConfig,
     ),
@@ -97,6 +108,7 @@ async function setup(decide?: GuardrailsDelegate["decide"]) {
 describe("permission gate delegation", () => {
   beforeEach(() => {
     state.autoDeny = [];
+    state.allowClasses = [];
     state.requireConfirmation = true;
   });
 
@@ -105,6 +117,23 @@ describe("permission gate delegation", () => {
     await expect(run("dangerous-cmd")).resolves.toBeUndefined();
     expect(custom).toHaveBeenCalledOnce();
     expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not review a command whose class is already granted", async () => {
+    state.allowClasses = ["pattern:dangerous-cmd"];
+    try {
+      const { run, custom, decideSpy } = await setup(() => ({
+        verdict: "block",
+        reason: "out of scope",
+      }));
+
+      // The answer was given when the grant was, so nothing reviews it again.
+      await expect(run("dangerous-cmd")).resolves.toBeUndefined();
+      expect(decideSpy).not.toHaveBeenCalled();
+      expect(custom).not.toHaveBeenCalled();
+    } finally {
+      state.allowClasses = [];
+    }
   });
 
   it("skips the prompt when delegates allow, and records the decision", async () => {

@@ -12,6 +12,7 @@ export {
   compileCommandPattern,
   compileCommandPatterns,
   matchDangerousCommand,
+  STRUCTURAL_PATTERN,
 } from "./dangerous";
 export type { ScratchDeleteScope, ScratchDeleteVerdict } from "./scratch";
 export {

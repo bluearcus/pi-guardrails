@@ -36,6 +36,8 @@ function makeConfig(overrides: Record<string, unknown> = {}): ResolvedConfig {
       requireConfirmation: true,
       allowedPatterns: [],
       autoDenyPatterns: [],
+      allowedClasses: [],
+      alwaysScope: "local",
       ...overrides,
     },
   } as unknown as ResolvedConfig;
@@ -47,6 +49,10 @@ vi.mock("../../src/shared/config", () => {
     configLoader: {
       load: vi.fn().mockResolvedValue(undefined),
       getConfig: vi.fn(() => makeConfig()),
+      getRawConfig: vi.fn(() => null),
+      getScopePath: vi.fn(() => null),
+      getProjectState: vi.fn(() => "trusted"),
+      save: vi.fn().mockResolvedValue(undefined),
     },
   };
 });
@@ -296,7 +302,8 @@ describe("permissionGate extension hook", () => {
       expect.stringContaining("test danger"),
       expect.arrayContaining([
         "Allow once",
-        "Allow for session",
+        'Allow "dangerous-cmd" this session',
+        'Always allow "dangerous-cmd"',
         "Deny",
         "Decline and stop",
       ]),

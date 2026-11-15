@@ -95,16 +95,83 @@ function buildRightAlignedBorder(
   return themeLine("─".repeat(Math.max(0, remaining)) + truncatedLabel);
 }
 
+export type PermissionGateConfirmResult =
+  | "allow"
+  | "allow-session"
+  | "allow-always"
+  | "deny"
+  | "stop";
+
+export interface PermissionGatePromptOption {
+  label: string;
+  result: PermissionGateConfirmResult;
+  /** Single-key shortcut. Uppercase is the stronger, permanent answer. */
+  key: string;
+  disabled: boolean;
+}
+
+/**
+ * The answers the prompt offers. A grant covers the class the command was
+ * flagged as — every command that same rule flags next — so the label names the
+ * class rather than pretending the answer is about this command alone.
+ */
+export function permissionGatePromptOptions(
+  classLabel: string,
+  alwaysEnabled: boolean,
+): PermissionGatePromptOption[] {
+  return [
+    { label: "Allow once", result: "allow", key: "y", disabled: false },
+    {
+      label: `Allow "${classLabel}" this session`,
+      result: "allow-session",
+      key: "a",
+      disabled: false,
+    },
+    {
+      label: `Always allow "${classLabel}"`,
+      result: "allow-always",
+      key: "A",
+      disabled: !alwaysEnabled,
+    },
+    { label: "Deny", result: "deny", key: "n", disabled: false },
+    { label: "Decline and stop", result: "stop", key: "s", disabled: false },
+  ];
+}
+
+export function enabledPermissionGatePromptOptions(
+  classLabel: string,
+  alwaysEnabled: boolean,
+): PermissionGatePromptOption[] {
+  return permissionGatePromptOptions(classLabel, alwaysEnabled).filter(
+    (option) => !option.disabled,
+  );
+}
+
+export interface PermissionGateConfirmOptions {
+  /** What the decision delegates said about this command. */
+  review?: string;
+  /** The class of command being answered, used in grant labels. */
+  classLabel: string;
+  /** Whether an always grant can be saved from this session. */
+  alwaysEnabled?: boolean;
+}
+
 export function createPermissionGateConfirmComponent(
   command: string,
   description: string,
-  review?: string,
+  confirmOptions: PermissionGateConfirmOptions,
 ) {
+  const review = confirmOptions.review;
+  const promptOptions = permissionGatePromptOptions(
+    confirmOptions.classLabel,
+    confirmOptions.alwaysEnabled ?? true,
+  );
+
   return (
     tui: { terminal: { rows: number; columns: number }; requestRender(): void },
     theme: MinimalTheme,
     _kb: unknown,
-    done: (result: "allow" | "allow-session" | "deny" | "stop") => void,
+    done: (result: PermissionGateConfirmResult) => void,
   ) => {
     const container = new Container();
     const redBorder = (s: string) => theme.fg("error", s);
@@ -142,12 +209,12 @@ export function createPermissionGateConfirmComponent(
     }
     container.addChild(new Text(theme.fg("text", "Allow execution?"), 1, 0));
     container.addChild(new Spacer(1));
+    const optionsText = new Text("", 0, 0);
+    container.addChild(optionsText);
+    container.addChild(new Spacer(1));
     container.addChild(
       new Text(
-        theme.fg(
-          "dim",
-          "↑/↓ or j/k: scroll • y/enter: allow • a: session • n/esc: deny • s: decline & stop",
-        ),
+        theme.fg("dim", "↑/↓ or j/k: scroll the command • Esc: deny"),
         1,
         0,
       ),
@@ -198,6 +265,18 @@ export function createPermissionGateConfirmComponent(
             linesBelow > 0 ? `↓ ${linesBelow} more` : "",
           ),
         );
+        optionsText.setText(
+          promptOptions
+            .filter((option) => !option.disabled)
+            .map(
+              (option) =>
+                `  ${option.key}  ${truncateToWidth(
+                  option.label,
+                  Math.max(1, contentWidth - 6),
+                )}`,
+            )
+            .join("\n"),
+        );
         return container.render(width);
       },
       invalidate: () => container.invalidate(),
@@ -215,22 +294,23 @@ export function createPermissionGateConfirmComponent(
         } else if (matchesKey(data, Key.down) || data === "j") {
           scrollOffset = Math.min(maxScrollOffset, scrollOffset + 1);
           tui.requestRender();
-        } else if (
-          matchesKey(data, Key.enter) ||
-          data === "y" ||
-          data === "Y"
-        ) {
+        } else if (matchesKey(data, Key.enter)) {
           done("allow");
-        } else if (data === "a" || data === "A") {
-          done("allow-session");
-        } else if (
-          matchesKey(data, Key.escape) ||
-          data === "n" ||
-          data === "N"
-        ) {
+        } else if (matchesKey(data, Key.escape)) {
           done("deny");
-        } else if (data === "s" || data === "S") {
-          done("stop");
+        } else if (data.length === 1) {
+          // A key that names an option is used as written, so an uppercase
+          // answer never folds into the lowercase one below it: when the
+          // always grant is unavailable, its key does nothing.
+          const exact = promptOptions.find((option) => option.key === data);
+          if (exact) {
+            if (!exact.disabled) done(exact.result);
+            return;
+          }
+          const folded = promptOptions.find(
+            (option) => option.key.toLowerCase() === data.toLowerCase(),
+          );
+          if (folded && !folded.disabled) done(folded.result);
         }
       },
     };
