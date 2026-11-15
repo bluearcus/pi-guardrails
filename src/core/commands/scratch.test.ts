@@ -126,11 +126,24 @@ describe("classifyScratchDelete", () => {
     ).toBe(false);
   });
 
-  it("still flags a trailing slash, which makes rm follow a linked directory", () => {
-    const verdict = classifyScratchDelete(["rm", "-rf", "/tmp/b1/"], scope);
+  it("reads a trailing slash as the same directory", () => {
+    expect(
+      classifyScratchDelete(["rm", "-rf", "/tmp/b1/"], scope).confined,
+    ).toBe(true);
+  });
+
+  it("still flags deleting a root through its trailing slash", () => {
+    const verdict = classifyScratchDelete(["rm", "-rf", "/tmp/"], scope);
     expect(verdict.confined).toBe(false);
     if (verdict.confined) return;
-    expect(verdict.reason).toContain("follow a symlinked directory");
+    expect(verdict.reason).toContain("whole scratch root");
+  });
+
+  it("still flags the filesystem root", () => {
+    const verdict = classifyScratchDelete(["rm", "-rf", "/"], scope);
+    expect(verdict.confined).toBe(false);
+    if (verdict.confined) return;
+    expect(verdict.reason).toContain("filesystem root");
   });
 
   it("still flags a path that passes through a symlink", () => {

@@ -647,7 +647,6 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
     for (const command of [
       "rm -rf /home/mike/Sync",
       "rm -rf /tmp/b1 && rm -rf ~/src",
-      "rm -rf /tmp/b1/",
       "rm -rf /tmp/*",
       "rm -rf /tmp/$DIR",
       "rm -rf /tmp",

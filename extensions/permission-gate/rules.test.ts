@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, symlinkSync, unlinkSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   createPermissionGateRule,
@@ -32,7 +33,11 @@ describe("createPermissionGateRule", () => {
     ).toEqual({ kind: "pass" });
   });
 
-  it("flags a scratch delete that could follow a link out of it", async () => {
+  it("flags a scratch delete that reaches out through a link", async () => {
+    mkdirSync("/tmp/escape", { recursive: true });
+    if (existsSync("/tmp/escape/link")) unlinkSync("/tmp/escape/link");
+    symlinkSync("/home/mike/Sync", "/tmp/escape/link");
+
     const rule = createPermissionGateRule({
       patterns: [{ pattern: "rm -rf", description: "recursive force delete" }],
       useBuiltinMatchers: true,
@@ -41,7 +46,7 @@ describe("createPermissionGateRule", () => {
 
     const result = await rule.check({
       kind: "command",
-      command: "rm -rf /tmp/b1/",
+      command: "rm -rf /tmp/escape/link/inner",
     });
     expect(result.kind).toBe("match");
   });

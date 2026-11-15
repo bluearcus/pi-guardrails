@@ -169,17 +169,21 @@ export function classifyScratchDelete(
         reason: `${operand} is not a literal path`,
       };
     }
-    if (operand.endsWith("/")) {
+    // A trailing slash is spelling, not another directory: /tmp/build/ is
+    // /tmp/build. What rm can follow is a link it walks into, and
+    // linksOnTheWayDown checks that walk below the scratch root.
+    const target = operand.replace(/\/+$/, "");
+    if (target === "") {
       return {
         confined: false,
-        reason: `${operand} ends with a slash, which makes rm follow a symlinked directory`,
+        reason: `${operand} is the filesystem root, not the agent's own directory`,
       };
     }
 
-    const path = operand.startsWith("/")
-      ? normalizeAbsolutePath(operand)
+    const path = target.startsWith("/")
+      ? normalizeAbsolutePath(target)
       : cwd
-        ? normalizeAbsolutePath(`${cwd}/${operand}`)
+        ? normalizeAbsolutePath(`${cwd}/${target}`)
         : undefined;
     if (!path) {
       return {
