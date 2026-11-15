@@ -4,6 +4,7 @@ import {
   NOT_LITERAL,
   normalizeAbsolutePath,
   RECURSIVE_FORCE_DELETE,
+  resolveScratchRoots,
 } from "./scratch";
 
 /**
@@ -125,9 +126,18 @@ export function commandGrantCovers(
 
   for (const target of targets) {
     if (NOT_LITERAL.test(target)) {
-      // A target the shell fills in cannot be placed, so the only thing a grant
-      // can check is where the command runs.
-      if (!cwd || !insideDirectory(cwd, directory)) return false;
+      // A pattern says where it deletes even though no single path is named:
+      // `/tmp/*` empties `/tmp`, so a grant has to cover `/tmp`. A target the
+      // shell fills in from its first word has no literal directory at all, and
+      // the only thing a grant can check for it is where the command runs.
+      const area = literalTargetDirectory(target, cwd);
+      if (!area) {
+        if (!cwd || !insideDirectory(cwd, directory)) return false;
+        continue;
+      }
+      if (!insideDirectory(area, directory)) return false;
+      const hazard = linksOnTheWayDown(area, directory);
+      if (hazard.link || hazard.unreadable) return false;
       continue;
     }
 
@@ -147,6 +157,30 @@ export function commandGrantCovers(
   return true;
 }
 
+/**
+ * The literal directory a target deletes inside, even when its last words are
+ * patterns: `/tmp/*` deletes inside `/tmp`, `build/*` inside `build`. Undefined
+ * when the shell fills in the beginning of the path (`$BDIR`, `$(mktemp -d)`),
+ * which says nothing about where it deletes.
+ */
+export function literalTargetDirectory(
+  target: string,
+  cwd: string | undefined,
+): string | undefined {
+  const absolute = target.startsWith("/");
+  const literal: string[] = [];
+  for (const segment of target.split("/")) {
+    if (!segment) continue;
+    if (NOT_LITERAL.test(segment)) break;
+    literal.push(segment);
+  }
+  if (literal.length === 0) return undefined;
+
+  return absolute
+    ? normalizeGrantDirectory(`/${literal.join("/")}`)
+    : normalizeGrantDirectory(cwd ? `${cwd}/${literal.join("/")}` : undefined);
+}
+
 /** Whether any grant covers a flagged command. */
 export function commandGrantCoversAny(
   grants: readonly CommandGrant[],
@@ -162,9 +196,10 @@ export function commandGrantCoversAny(
 /**
  * The directory a grant should name for a flagged command: the deepest directory
  * that would actually cover it. Literal targets contribute the directory they
- * sit in; a target the shell fills in contributes the working directory, because
- * that is all a grant can check for it. Undefined when the action spans
- * directories no single grant covers.
+ * sit in; a pattern contributes the literal directory it deletes inside; a
+ * target the shell fills in contributes the working directory, because that is
+ * all a grant can check for it. Undefined when the action spans directories no
+ * single grant covers.
  */
 export function grantDirectoryFor(
   targets: readonly string[],
@@ -173,7 +208,8 @@ export function grantDirectoryFor(
   const required: string[] = [];
   for (const target of targets) {
     if (NOT_LITERAL.test(target)) {
-      const directory = normalizeGrantDirectory(cwd);
+      const directory =
+        literalTargetDirectory(target, cwd) ?? normalizeGrantDirectory(cwd);
       if (!directory) return undefined;
       required.push(directory);
       continue;
@@ -199,4 +235,32 @@ export function grantDirectoryFor(
     }
   }
   return normalizeGrantDirectory(common);
+}
+
+/**
+ * The directory a prompt may offer a grant for. A grant is standing authority
+ * over everything inside a directory, so it is offered only over a place the
+ * command was already working in: the working directory or one under it, or a
+ * scratch root the config declares. A delete that climbs out of the working
+ * directory would need a grant over its parent — which is authority over
+ * everything next to the thing being deleted — so it is allowed once or not at
+ * all, never granted. `roots` are the configured scratch directories, relative
+ * ones placed against `cwd`.
+ */
+export function grantOfferFor(
+  targets: readonly string[],
+  cwd: string | undefined,
+  roots: readonly string[] = [],
+): string | undefined {
+  const directory = grantDirectoryFor(targets, cwd);
+  if (!directory) return undefined;
+
+  const working = normalizeGrantDirectory(cwd);
+  if (working && insideDirectory(directory, working)) return directory;
+
+  const scratch = resolveScratchRoots(roots, cwd);
+  if (scratch.some((root) => insideDirectory(directory, root))) {
+    return directory;
+  }
+  return undefined;
 }

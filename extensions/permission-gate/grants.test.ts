@@ -1,6 +1,10 @@
 import { vol } from "memfs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandGrant } from "../../src/core/commands";
+import {
+  commandGrantCovers,
+  literalTargetDirectory,
+} from "../../src/core/commands";
 import { configLoader } from "../../src/shared/config";
 import {
   describeCommandClass,
@@ -50,15 +54,58 @@ describe("grantCandidateFor", () => {
 
   it("names the class and the directory the action happens in", () => {
     expect(
-      grantCandidateFor(
-        DELETE_CLASS,
-        "rm -rf /home/mike/project/build",
-        "/tmp",
-      ),
-    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/project" });
+      grantCandidateFor(DELETE_CLASS, "rm -rf build", "/home/mike/project"),
+    ).toEqual({
+      class: DELETE_CLASS,
+      directory: "/home/mike/project",
+    });
     expect(
       grantCandidateFor(DELETE_CLASS, "rm -rf .layout", "/home/mike/pro"),
     ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/pro" });
+  });
+
+  it("names a scratch root for a delete inside it", () => {
+    expect(
+      grantCandidateFor(DELETE_CLASS, "rm -rf /tmp/build", "/home/mike/pro", [
+        "/tmp",
+      ]),
+    ).toEqual({ class: DELETE_CLASS, directory: "/tmp" });
+    expect(
+      grantCandidateFor(DELETE_CLASS, "rm -rf out", "/home/mike/pro", ["."]),
+    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/pro" });
+  });
+
+  it("offers no grant over the tree around the working directory", () => {
+    // Deleting the parent would need a grant over everything next to it.
+    expect(
+      grantCandidateFor(DELETE_CLASS, "rm -rf ..", "/home/mike/project/build"),
+    ).toBeUndefined();
+    expect(
+      grantCandidateFor(
+        DELETE_CLASS,
+        "rm -rf /home/mike/project/sub/build",
+        "/home/mike/project/build",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("covers a wildcard only where its literal part sits", () => {
+    const grant = { class: DELETE_CLASS, directory: "/home/mike/project" };
+    expect(
+      commandGrantCovers(grant, DELETE_CLASS, ["/tmp/*"], "/home/mike/project"),
+    ).toBe(false);
+    expect(
+      commandGrantCovers(
+        grant,
+        DELETE_CLASS,
+        ["/home/mike/project/build/*"],
+        "/home/mike/project",
+      ),
+    ).toBe(true);
+    expect(literalTargetDirectory("/tmp/*", "/home/mike/pro")).toBe("/tmp");
+    expect(
+      literalTargetDirectory("$BDIR/build", "/home/mike/pro"),
+    ).toBeUndefined();
   });
 
   it("names the working directory for a target it cannot place", () => {

@@ -596,6 +596,22 @@ export function checkDangerousCommand({
 }
 
 /**
+ * Whether the gate can say where a command happens: it parsed into structure
+ * and does not move the working directory itself. A command that `cd`s somewhere
+ * else, or that never parsed, is not placeable — no grant can be taken for it,
+ * because coverage is decided against the directory the call started in.
+ */
+export function commandIsPlaceable(command: string): boolean {
+  let ast: Program | undefined;
+  try {
+    ast = parse(command, { recoverErrors: true }).ast;
+  } catch {
+    return false;
+  }
+  return ast !== undefined && !movesWorkingDirectory(ast);
+}
+
+/**
  * The targets of the recursive force deletes in a command, as written. Used to
  * propose which directory a grant should name: the gate already parsed the
  * command to flag it, and this is the same walk over the same AST.

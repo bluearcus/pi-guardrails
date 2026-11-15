@@ -10,15 +10,20 @@ called>` for a built-in match, `pattern:<pattern>` for a configured pattern) and
 one directory. A recursive delete is covered when every target sits under that
 directory and none of them is the directory itself; a class with no path targets
 is covered when the call ran inside it; a target written as a variable or a
-wildcard is covered only there. `cd`/`pushd`/`popd` in the command voids the
+wildcard is covered only there — a wildcard counts where its literal part sits,
+so a grant for `/tmp` covers `rm -rf /tmp/build/*` and not `rm -rf /home/mike/*`.
+`cd`/`pushd`/`popd` in the command voids the
 coverage, an action spanning directories is never covered, and no grant is
 offered for `/` or the home directory.
 
 Every answer states what it covers — `Allow recursive force delete under
-~/project this session` — and when no single directory covers the action the
-prompt offers only the command in front of you, with a line saying why. Always
-grants save to `permissionGate.grants` in the scope `permissionGate.alwaysScope`
-names, the project config by default; edit or revoke them in Settings →
-Permission Gate → Command grants. A covered command is dropped by the core check
-before a risk is reported, so it prompts, emits, and reviews nothing; auto-deny
-patterns are still matched first.
+~/project this session` — and a grant is only ever offered over the directory
+the call is working in or one under it, or a scratch root from
+`permissionGate.scratchDelete.roots`: a delete that climbs out of the working
+directory would need authority over everything next to it, so such a command is
+allowed once or not at all, and a command the gate cannot place shows no grant
+option at all. Always grants save to `permissionGate.grants` in the scope
+`permissionGate.alwaysScope` names, the project config by default; edit or
+revoke them in Settings → Permission Gate → Command grants. A covered command is
+dropped by the core check before a risk is reported, so it prompts, emits, and
+reviews nothing; auto-deny patterns are still matched first.

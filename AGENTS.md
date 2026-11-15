@@ -26,9 +26,18 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   a match a grant covers, so a covered command never produces a risk event, a
   prompt, or a delegate review — do not re-parse the command in the extension to
   decide coverage. A recursive delete is covered only when every target sits
-  under the granted directory and none is that directory itself; a class with no
-  path targets only when the call ran inside it; a command that moves the
-  working directory, or whose targets span directories, is never covered.
+  under the granted directory and none is that directory itself; a wildcard
+  target counts where its literal part sits (`/tmp/*` deletes inside `/tmp`,
+  `literalTargetDirectory()`); a target the shell fills in from its first word,
+  and any class with no path targets, only where the call ran; a command that
+  moves the working directory, or whose targets span directories, is never
+  covered. What the prompt may *offer* is narrower than what a grant can cover:
+  `grantOfferFor()` names the working directory or something under it, or a
+  declared scratch root, and `commandIsPlaceable()` refuses an offer for a
+  command coverage could never apply to — one that moves the working directory,
+  or that the gate cannot place. A hand-written `permissionGate.grants` entry is
+  coverage as stated, so keeping an offer honest is the extension's job, not the
+  checker's.
   `saveCommandGrant()` merges into the target scope's own raw config because
   `ConfigLoader.save()` replaces a scope wholesale, which would otherwise drop
   everything else that scope held.

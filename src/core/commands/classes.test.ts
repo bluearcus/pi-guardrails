@@ -9,7 +9,9 @@ import {
   commandGrantCoversAny,
   describeCommandClass,
   grantDirectoryFor,
+  grantOfferFor,
   grantTargetsFor,
+  literalTargetDirectory,
   normalizeGrantDirectory,
   patternClassKey,
   RECURSIVE_FORCE_DELETE,
@@ -285,5 +287,105 @@ describe("grantDirectoryFor", () => {
     expect(
       grantDirectoryFor(["/home/mike/Sync", "/tmp/build"], "/home/mike"),
     ).toBeUndefined();
+  });
+});
+
+describe("grantOfferFor", () => {
+  it("offers the working directory and what is under it", () => {
+    expect(grantOfferFor(["build"], "/home/mike/project")).toBe(
+      "/home/mike/project",
+    );
+    expect(
+      grantOfferFor(["/home/mike/project/sub/build"], "/home/mike/project"),
+    ).toBe("/home/mike/project/sub");
+    expect(grantOfferFor([], "/home/mike/project")).toBe("/home/mike/project");
+  });
+
+  it("offers a scratch root for a delete inside it", () => {
+    expect(grantOfferFor(["/tmp/build"], "/home/mike/project", ["/tmp"])).toBe(
+      "/tmp",
+    );
+    expect(
+      grantOfferFor(["/var/tmp/build"], "/home/mike/project", ["/var/tmp"]),
+    ).toBe("/var/tmp");
+    expect(
+      grantOfferFor(["scratch/x"], "/home/mike/project", ["./scratch"]),
+    ).toBe("/home/mike/project/scratch");
+  });
+
+  it("offers nothing over the tree around the working directory", () => {
+    // A grant there would cover everything next to what is being deleted.
+    expect(grantOfferFor([".."], "/home/mike/project/build")).toBeUndefined();
+    expect(
+      grantOfferFor(["../outside"], "/home/mike/project/build"),
+    ).toBeUndefined();
+    expect(
+      grantOfferFor(["/home/mike/Sync"], "/home/mike/Sync/Projects"),
+    ).toBeUndefined();
+  });
+
+  it("keeps a wildcard offer where its literal part sits", () => {
+    expect(grantOfferFor(["/tmp/*"], "/home/mike/project", ["/tmp"])).toBe(
+      "/tmp",
+    );
+    expect(
+      grantOfferFor(["/home/mike/other/*"], "/home/mike/project"),
+    ).toBeUndefined();
+  });
+});
+
+describe("literalTargetDirectory", () => {
+  it("reads the directory a pattern deletes inside", () => {
+    expect(literalTargetDirectory("/tmp/*", "/home/mike/project")).toBe("/tmp");
+    expect(literalTargetDirectory("build/*", "/home/mike/project")).toBe(
+      "/home/mike/project/build",
+    );
+    expect(literalTargetDirectory("/tmp/build/*", undefined)).toBe(
+      "/tmp/build",
+    );
+  });
+
+  it("says nothing about a target the shell fills in", () => {
+    expect(
+      literalTargetDirectory("$BDIR", "/home/mike/project"),
+    ).toBeUndefined();
+    expect(
+      literalTargetDirectory("$(mktemp -d)/x", "/home/mike/project"),
+    ).toBeUndefined();
+    expect(
+      literalTargetDirectory("$BDIR/build", "/home/mike/project"),
+    ).toBeUndefined();
+  });
+});
+
+describe("commandGrantCovers with a wildcard target", () => {
+  const grant: CommandGrant = {
+    class: builtinClassKey(RECURSIVE_FORCE_DELETE),
+    directory: "/home/mike/project",
+  };
+
+  it("covers a wildcard whose literal part sits inside the grant", () => {
+    expect(
+      commandGrantCovers(
+        grant,
+        grant.class,
+        ["/home/mike/project/build/*"],
+        "/home/mike/project",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not cover a wildcard that deletes somewhere else", () => {
+    expect(
+      commandGrantCovers(grant, grant.class, ["/tmp/*"], "/home/mike/project"),
+    ).toBe(false);
+    expect(
+      commandGrantCovers(
+        grant,
+        grant.class,
+        ["/home/mike/other/*"],
+        "/home/mike/project",
+      ),
+    ).toBe(false);
   });
 });

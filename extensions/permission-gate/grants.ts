@@ -2,9 +2,10 @@ import {
   type CommandClassKey,
   type CommandGrant,
   commandClassKey,
+  commandIsPlaceable,
   deleteTargetsFor,
   describeCommandClass as describeClass,
-  grantDirectoryFor,
+  grantOfferFor,
   normalizeGrantDirectory,
   patternClassKey,
 } from "../../src/core/commands";
@@ -61,18 +62,25 @@ export function isCommandAllowed(command: string): boolean {
 
 /**
  * The grant to offer for a flagged command: the class it was matched as, in the
- * one directory that would cover it. Undefined when the action spans directories
- * no single grant covers, or the gate cannot place it at all — then there is
- * nothing honest to offer, and the user only gets to allow the command once.
+ * one directory that would cover it. Undefined when no directory the user is
+ * already working in would cover it — a delete of something the working
+ * directory does not own is allowed once, not granted over the tree around it.
  */
 export function grantCandidateFor(
   classKey: CommandClassKey,
   command: string,
   cwd: string | undefined,
+  scratchRoots: readonly string[] = [],
 ): CommandGrant | undefined {
-  const directory = grantDirectoryFor(
+  // A grant is coverage, and coverage needs a directory the command ran in. A
+  // command that moves the working directory, or that never parsed, cannot be
+  // placed, so offering a grant for it would promise something no grant gives.
+  if (!commandIsPlaceable(command)) return undefined;
+
+  const directory = grantOfferFor(
     classKey === DELETE_CLASS ? deleteTargetsFor(command) : [],
     cwd,
+    scratchRoots,
   );
   if (!directory) return undefined;
   if (isGrantTooBroad(directory)) return undefined;

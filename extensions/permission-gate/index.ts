@@ -161,7 +161,12 @@ export default async function permissionGate(pi: ExtensionAPI) {
     }
 
     const classKey = commandClassKey(safety.metadata);
-    const grant = grantCandidateFor(classKey, command, ctx.cwd);
+    const grant = grantCandidateFor(
+      classKey,
+      command,
+      ctx.cwd,
+      config.permissionGate.scratchDelete.roots,
+    );
     const grantLabel = grant ? describeGrant(grant) : "";
     const alwaysEnabled =
       config.permissionGate.alwaysScope === "global" ||

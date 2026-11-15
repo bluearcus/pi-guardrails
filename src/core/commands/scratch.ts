@@ -85,7 +85,7 @@ export function absoluteOrUndefined(path: unknown): string | undefined {
 }
 
 /** Roots as absolute directories, relative ones placed against `cwd`. */
-function resolveScratchRoots(
+export function resolveScratchRoots(
   roots: readonly string[],
   cwd: string | undefined,
 ): string[] {

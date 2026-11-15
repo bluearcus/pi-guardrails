@@ -40,8 +40,11 @@ the next command of the same kind prompts again. Here `permissionGate.grants`
 holds `{ class, directory }` pairs — `class` is `builtin:<matcher description>`
 or `pattern:<pattern>`, `directory` is absolute — and core decides coverage in
 `checkDangerousCommand`: a recursive delete is covered only when every target
-sits under the granted directory and none of them is that directory itself, and
-a class with no path targets only when the call ran inside it. A session grant
+sits under the granted directory and none of them is that directory itself, a
+wildcard counts where its literal part sits, and a class with no path targets
+only when the call ran inside it. What the prompt may offer is narrower: a grant
+is only offered over the working directory or something under it, or a declared
+scratch root, and never for a command the gate cannot place. A session grant
 goes to the memory scope and an always grant to `permissionGate.alwaysScope`.
 Grants are saved by merging the target scope's own raw config, because
 `ConfigLoader.save()` replaces a scope wholesale. When merging upstream, keep
