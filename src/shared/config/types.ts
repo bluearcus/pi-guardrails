@@ -4,6 +4,7 @@
  * GuardrailsConfig is the user-facing schema (all fields optional).
  * ResolvedConfig is the internal schema (all fields required, defaults applied).
  */
+import type { CommandGrant } from "../../core/commands";
 import type { GuardrailsFeatureId } from "../events";
 
 /**
@@ -220,16 +221,17 @@ export interface GuardrailsConfig {
     /** Command patterns that are always blocked without prompting. */
     autoDenyPatterns?: PatternConfig[];
     /**
-     * Command classes the user chose "always allow" for. A class is one kind of
-     * flagged risk, not one command string, so it covers the next command that
-     * is flagged the same way:
-     * - `builtin:<description>` covers a built-in structural match, e.g.
-     *   `builtin:recursive force delete` for any `rm -rf`.
-     * - `pattern:<pattern>` covers a configured dangerous pattern, e.g.
-     *   `pattern:docker run --privileged`.
+     * Classes of flagged command the user allowed, each for one directory. A
+     * grant is the rule that flags the class plus where it is allowed:
+     * - `{ class: "builtin:recursive force delete", directory: "/tmp/work" }`
+     *   covers every recursive force delete of something inside `/tmp/work`;
+     * - `{ class: "pattern:docker run --privileged", directory: "/srv" }` covers
+     *   that configured pattern for commands run inside `/srv`.
+     * A grant covers the next command of the class in that directory, not the
+     * command line it was answered on, and never the granted directory itself.
      * Entries union across scopes. Auto-deny patterns still win.
      */
-    allowedClasses?: string[];
+    grants?: CommandGrant[];
     /** Config scope used when the user picks "Allow … always" in the prompt. Default: "local". */
     alwaysScope?: AlwaysGrantScope;
     /**
@@ -288,8 +290,8 @@ export interface ResolvedConfig {
     requireConfirmation: boolean;
     allowedPatterns: PatternConfig[];
     autoDenyPatterns: PatternConfig[];
-    /** Command classes permanently allowed, unioned across scopes. */
-    allowedClasses: string[];
+    /** Class grants unioned across scopes, deduped by class and directory. */
+    grants: CommandGrant[];
     alwaysScope: AlwaysGrantScope;
     /** Recursive deletes confined to these roots are not flagged. */
     scratchDelete: { enabled: boolean; roots: string[] };

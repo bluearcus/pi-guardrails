@@ -36,8 +36,10 @@ function makeConfig(overrides: Record<string, unknown> = {}): ResolvedConfig {
       requireConfirmation: true,
       allowedPatterns: [],
       autoDenyPatterns: [],
-      allowedClasses: [],
+      grants: [],
       alwaysScope: "local",
+      scratchDelete: { enabled: true, roots: ["/tmp"] },
+      customPatterns: undefined,
       ...overrides,
     },
   } as unknown as ResolvedConfig;
@@ -66,10 +68,13 @@ function registeredToolCallHandler(pi: DeepMocked<ExtensionAPI>) {
     | undefined;
 }
 
+const WORKING_DIR = "/home/mike/project";
+
 function createCtx(overrides: PartialFuncReturn<ExtensionContext> = {}) {
   return createMock<ExtensionContext>({
     hasUI: true,
     mode: "tui",
+    cwd: WORKING_DIR,
     ui: {
       custom: vi.fn().mockResolvedValue(undefined),
       select: vi.fn().mockResolvedValue(undefined),
@@ -302,8 +307,8 @@ describe("permissionGate extension hook", () => {
       expect.stringContaining("test danger"),
       expect.arrayContaining([
         "Allow once",
-        'Allow "dangerous-cmd" this session',
-        'Always allow "dangerous-cmd"',
+        "Allow dangerous-cmd under ~/project this session",
+        "Always allow dangerous-cmd under ~/project",
         "Deny",
         "Decline and stop",
       ]),
@@ -332,6 +337,70 @@ describe("permissionGate extension hook", () => {
     expect(title).toBe(
       "Dangerous command: test danger\n\n    dangerous-cmd \\\n      --force",
     );
+  });
+
+  it("does not ask again for a class granted for the working directory", async () => {
+    assert(toolCallHandler, "tool_call handler should be registered");
+    vi.mocked(configLoader.getConfig).mockReturnValue(
+      makeConfig({
+        grants: [{ class: "pattern:dangerous-cmd", directory: WORKING_DIR }],
+      }),
+    );
+
+    const ctx = createCtx();
+    const result = await toolCallHandler(DANGEROUS_EVENT, ctx);
+
+    expect(result).toBeUndefined();
+    expect(ctx.ui.custom).not.toHaveBeenCalled();
+  });
+
+  it("asks again for the same class in a directory that was not granted", async () => {
+    assert(toolCallHandler, "tool_call handler should be registered");
+    vi.mocked(configLoader.getConfig).mockReturnValue(
+      makeConfig({
+        grants: [{ class: "pattern:dangerous-cmd", directory: "/tmp/other" }],
+      }),
+    );
+
+    const ctx = createCtx({
+      ui: { custom: vi.fn().mockResolvedValue("deny") },
+    });
+    const result = await toolCallHandler(DANGEROUS_EVENT, ctx);
+
+    expect(result).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+  });
+
+  it("offers no grant when no directory covers the action", async () => {
+    assert(toolCallHandler, "tool_call handler should be registered");
+    vi.mocked(configLoader.getConfig).mockReturnValue(
+      makeConfig({
+        patterns: [
+          { pattern: "rm -rf", description: "recursive force delete" },
+        ],
+        useBuiltinMatchers: true,
+      }),
+    );
+
+    const select = vi.fn().mockResolvedValue("Deny");
+    const ctx = createCtx({
+      cwd: WORKING_DIR,
+      ui: { custom: vi.fn().mockResolvedValue(undefined), select },
+    });
+    await toolCallHandler(
+      {
+        type: "tool_call",
+        toolCallId: "spans-call",
+        toolName: "bash",
+        input: { command: "rm -rf /home/mike/project/a /tmp/b" },
+      } satisfies BashToolCallEvent,
+      ctx,
+    );
+
+    const [, options] = select.mock.calls[0] ?? [];
+    expect(options).toEqual(["Allow once", "Deny", "Decline and stop"]);
   });
 
   it("non-interactive (no UI) blocks with nonInteractive source and does not abort", async () => {

@@ -17,11 +17,11 @@ import permissionGate from "./index";
 
 const state: {
   autoDeny: string[];
-  allowClasses: string[];
+  grants: Array<{ class: string; directory: string }>;
   requireConfirmation: boolean;
 } = {
   autoDeny: [],
-  allowClasses: [],
+  grants: [],
   requireConfirmation: true,
 };
 
@@ -46,8 +46,10 @@ vi.mock("../../src/shared/config", () => ({
             requireConfirmation: state.requireConfirmation,
             allowedPatterns: [],
             autoDenyPatterns: state.autoDeny.map((pattern) => ({ pattern })),
-            allowedClasses: state.allowClasses ?? [],
+            grants: state.grants ?? [],
             alwaysScope: "local",
+            scratchDelete: { enabled: true, roots: ["/tmp"] },
+            customPatterns: undefined,
           },
         }) as unknown as ResolvedConfig,
     ),
@@ -108,7 +110,7 @@ async function setup(decide?: GuardrailsDelegate["decide"]) {
 describe("permission gate delegation", () => {
   beforeEach(() => {
     state.autoDeny = [];
-    state.allowClasses = [];
+    state.grants = [];
     state.requireConfirmation = true;
   });
 
@@ -119,8 +121,10 @@ describe("permission gate delegation", () => {
     expect(appendEntry).not.toHaveBeenCalled();
   });
 
-  it("does not review a command whose class is already granted", async () => {
-    state.allowClasses = ["pattern:dangerous-cmd"];
+  it("does not review a command a grant for the directory covers", async () => {
+    state.grants = [
+      { class: "pattern:dangerous-cmd", directory: "/workspace" },
+    ];
     try {
       const { run, custom, decideSpy } = await setup(() => ({
         verdict: "block",
@@ -132,7 +136,7 @@ describe("permission gate delegation", () => {
       expect(decideSpy).not.toHaveBeenCalled();
       expect(custom).not.toHaveBeenCalled();
     } finally {
-      state.allowClasses = [];
+      state.grants = [];
     }
   });
 

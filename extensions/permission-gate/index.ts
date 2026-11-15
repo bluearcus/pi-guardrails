@@ -25,9 +25,9 @@ import {
 } from "../../src/shared/events";
 import {
   commandClassKey,
-  describeCommandClass,
+  describeGrant,
+  grantCandidateFor,
   isCommandAllowed,
-  isCommandClassAllowed,
   saveCommandGrant,
 } from "./grants";
 import {
@@ -92,15 +92,11 @@ export default async function permissionGate(pi: ExtensionAPI) {
         patterns: config.permissionGate.patterns,
         useBuiltinMatchers: config.permissionGate.useBuiltinMatchers,
         scratchDelete: config.permissionGate.scratchDelete,
+        grants: config.permissionGate.grants,
         cwd: ctx.cwd,
       }),
     ]);
     if (safety.kind === "safe") return;
-
-    // A class the user has already allowed decides the command without a
-    // prompt and without a review: the answer was given when the grant was.
-    const classKey = commandClassKey(safety.metadata);
-    if (isCommandClassAllowed(classKey)) return;
 
     emitRiskDetected(pi, {
       feature: "permissionGate",
@@ -164,7 +160,9 @@ export default async function permissionGate(pi: ExtensionAPI) {
       return { block: true, reason };
     }
 
-    const classLabel = describeCommandClass(classKey);
+    const classKey = commandClassKey(safety.metadata);
+    const grant = grantCandidateFor(classKey, command, ctx.cwd);
+    const grantLabel = grant ? describeGrant(grant) : "";
     const alwaysEnabled =
       config.permissionGate.alwaysScope === "global" ||
       configLoader.getProjectState() === "trusted";
@@ -186,7 +184,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
       const customResult = await ctx.ui.custom<PermissionGateConfirmResult>(
         createPermissionGateConfirmComponent(command, safety.reason, {
           review,
-          classLabel,
+          grant,
           alwaysEnabled,
         }),
         {
@@ -201,7 +199,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
         // RPC mode has no custom component support; fall back to a plain
         // select with the same options as the TUI prompt.
         const options = enabledPermissionGatePromptOptions(
-          classLabel,
+          grant,
           alwaysEnabled,
         );
         if (!alwaysEnabled) {
@@ -232,19 +230,20 @@ export default async function permissionGate(pi: ExtensionAPI) {
 
     if (result === "allow") return;
     if (result === "allow-session" || result === "allow-always") {
+      if (!grant) return;
       const scope =
         result === "allow-session"
           ? "memory"
           : config.permissionGate.alwaysScope;
-      const saved = await saveCommandGrant(classKey, scope);
+      const saved = await saveCommandGrant(grant, scope);
       ctx.ui.notify(
         saved.added
-          ? `Allowed "${classLabel}" commands ${
+          ? `Allowed ${grantLabel} ${
               saved.path
                 ? `always — saved to ${saved.path}`
                 : "for this session"
-            }. Revoke it in /guardrails:settings → Permission Gate → Command classes.`
-          : `Allowed "${classLabel}" commands.`,
+            }. Revoke it in /guardrails:settings → Permission Gate → Command grants.`
+          : `Allowed ${grantLabel}.`,
         "info",
       );
       return;

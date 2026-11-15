@@ -149,7 +149,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
     requireConfirmation: true,
     allowedPatterns: [],
     autoDenyPatterns: [],
-    allowedClasses: [],
+    grants: [],
     alwaysScope: "local",
     scratchDelete: { enabled: true, roots: ["/tmp"] },
   },

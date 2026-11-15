@@ -1,5 +1,5 @@
 import type { Action, Rule } from "../../src/core";
-import type { ScratchDeleteScope } from "../../src/core/commands";
+import type { CommandGrant, ScratchDeleteScope } from "../../src/core/commands";
 import { checkDangerousCommand } from "../../src/core/commands";
 import type { DangerousPattern, PatternConfig } from "../../src/shared/config";
 import { compileCommandPatterns } from "../../src/shared/matching";
@@ -15,7 +15,12 @@ export type PermissionGateRuleOptions = {
   useBuiltinMatchers: boolean;
   /** Recursive deletes confined to these roots are not flagged. */
   scratchDelete?: { enabled?: boolean; roots?: string[] };
-  /** Working directory relative scratch targets resolve against. */
+  /**
+   * Classes the user allowed for one directory. A flagged command a grant covers
+   * is not reported at all: that answer was already given.
+   */
+  grants?: readonly CommandGrant[];
+  /** Working directory relative targets and grants are placed against. */
   cwd?: string;
 };
 
@@ -23,6 +28,7 @@ export function createPermissionGateRule({
   patterns,
   useBuiltinMatchers,
   scratchDelete,
+  grants,
   cwd,
 }: PermissionGateRuleOptions): Rule<PermissionGateMeta> {
   const compiledPatterns = compileCommandPatterns(patterns);
@@ -42,6 +48,8 @@ export function createPermissionGateRule({
         useBuiltinMatchers,
         fallbackPatterns: patterns,
         scratchScope,
+        grants,
+        cwd,
       });
       if (!match) return { kind: "pass" };
 

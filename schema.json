@@ -167,12 +167,12 @@
               },
               "description": "Command patterns that are always blocked without prompting."
             },
-            "allowedClasses": {
+            "grants": {
               "type": "array",
               "items": {
-                "type": "string"
+                "$ref": "#/definitions/CommandGrant"
               },
-              "description": "Command classes the user chose \"always allow\" for. A class is one kind of flagged risk, not one command string, so it covers the next command that is flagged the same way:\n- `builtin:<description>` covers a built-in structural match, e.g.   `builtin:recursive force delete` for any `rm -rf`.\n- `pattern:<pattern>` covers a configured dangerous pattern, e.g.   `pattern:docker run --privileged`. Entries union across scopes. Auto-deny patterns still win."
+              "description": "Classes of flagged command the user allowed, each for one directory. A grant is the rule that flags the class plus where it is allowed:\n- `{ class: \"builtin:recursive force delete\", directory: \"/tmp/work\" }`   covers every recursive force delete of something inside `/tmp/work`;\n- `{ class: \"pattern:docker run --privileged\", directory: \"/srv\" }` covers   that configured pattern for commands run inside `/srv`. A grant covers the next command of the class in that directory, not the command line it was answered on, and never the granted directory itself. Entries union across scopes. Auto-deny patterns still win."
             },
             "alwaysScope": {
               "$ref": "#/definitions/AlwaysGrantScope",
@@ -487,6 +487,28 @@
       ],
       "additionalProperties": false,
       "description": "Permission gate pattern. When regex is false (default), the pattern is matched as substring against the raw command string. When regex is true, uses full regex against the raw string."
+    },
+    "CommandGrant": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "$ref": "#/definitions/CommandClassKey"
+        },
+        "directory": {
+          "type": "string",
+          "description": "Absolute directory. A grant never covers the filesystem root."
+        }
+      },
+      "required": [
+        "class",
+        "directory"
+      ],
+      "additionalProperties": false,
+      "description": "A class of flagged command allowed inside one directory."
+    },
+    "CommandClassKey": {
+      "type": "string",
+      "description": "The rule that flagged the class: a built-in matcher or a configured pattern."
     }
   }
 }

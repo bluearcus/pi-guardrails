@@ -378,34 +378,40 @@ describe("permissionGate command class grants", () => {
     vol.reset();
   });
 
-  it("has no allowed classes until something is granted", async () => {
+  it("has no grants until something is granted", async () => {
     vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-default");
     vol.fromJSON({ "/tmp/pi-agent-classes-default/.keep": "" });
 
     const configLoader = createGuardrailsConfigLoader();
     await configLoader.load();
 
-    expect(configLoader.getConfig().permissionGate.allowedClasses).toEqual([]);
+    expect(configLoader.getConfig().permissionGate.grants).toEqual([]);
     expect(configLoader.getConfig().permissionGate.alwaysScope).toBe("local");
   });
 
-  it("unions allowedClasses across scopes, deduped", async () => {
+  it("unions grants across scopes, deduped by class and directory", async () => {
     vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-merge");
     const cwd = process.cwd();
     vol.fromJSON({
       "/tmp/pi-agent-classes-merge/extensions/guardrails.json": JSON.stringify({
         version: pkg.version,
         permissionGate: {
-          allowedClasses: [
-            "builtin:recursive force delete",
-            "pattern:docker run --privileged",
+          grants: [
+            { class: "builtin:recursive force delete", directory: "/tmp" },
+            {
+              class: "pattern:docker run --privileged",
+              directory: "/srv/build",
+            },
           ],
         },
       }),
       [join(cwd, ".pi/extensions/guardrails.json")]: JSON.stringify({
         version: pkg.version,
         permissionGate: {
-          allowedClasses: ["builtin:recursive force delete", "pattern:mkfs."],
+          grants: [
+            { class: "builtin:recursive force delete", directory: "/tmp/" },
+            { class: "builtin:recursive force delete", directory: "/work" },
+          ],
         },
       }),
     });
@@ -417,10 +423,37 @@ describe("permissionGate command class grants", () => {
       isProjectTrusted: () => true,
     });
 
-    expect(configLoader.getConfig().permissionGate.allowedClasses).toEqual([
-      "builtin:recursive force delete",
-      "pattern:docker run --privileged",
-      "pattern:mkfs.",
+    expect(configLoader.getConfig().permissionGate.grants).toEqual([
+      { class: "builtin:recursive force delete", directory: "/tmp" },
+      { class: "pattern:docker run --privileged", directory: "/srv/build" },
+      { class: "builtin:recursive force delete", directory: "/work" },
+    ]);
+  });
+
+  it("drops a grant whose directory it cannot name", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-invalid");
+    vol.fromJSON({
+      "/tmp/pi-agent-classes-invalid/extensions/guardrails.json":
+        JSON.stringify({
+          version: pkg.version,
+          permissionGate: {
+            grants: [
+              { class: "builtin:recursive force delete", directory: "/" },
+              { class: "", directory: "/tmp" },
+              { class: "pattern:rm -rf", directory: "$BUILD" },
+              { class: "pattern:rm -rf", directory: "relative/dir" },
+              "recursive force delete",
+              { class: "pattern:mkfs.", directory: "/dev/scratch" },
+            ],
+          },
+        }),
+    });
+
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+
+    expect(configLoader.getConfig().permissionGate.grants).toEqual([
+      { class: "pattern:mkfs.", directory: "/dev/scratch" },
     ]);
   });
 
@@ -431,7 +464,14 @@ describe("permissionGate command class grants", () => {
         {
           version: pkg.version,
           pathAccess: { mode: "block" },
-          permissionGate: { allowedClasses: ["builtin:superuser command"] },
+          permissionGate: {
+            grants: [
+              {
+                class: "builtin:superuser command",
+                directory: "/home/mike/project",
+              },
+            ],
+          },
         },
       ),
     });
@@ -444,18 +484,30 @@ describe("permissionGate command class grants", () => {
     await configLoader.save("memory", {
       pathAccess: { mode: "block" },
       permissionGate: {
-        allowedClasses: [
-          "builtin:superuser command",
-          "builtin:recursive force delete",
+        grants: [
+          {
+            class: "builtin:superuser command",
+            directory: "/home/mike/project",
+          },
+          {
+            class: "builtin:recursive force delete",
+            directory: "/home/mike/project",
+          },
         ],
       },
     });
 
     const config = configLoader.getConfig();
     expect(config.pathAccess.mode).toBe("block");
-    expect(config.permissionGate.allowedClasses).toEqual([
-      "builtin:superuser command",
-      "builtin:recursive force delete",
+    expect(config.permissionGate.grants).toEqual([
+      {
+        class: "builtin:superuser command",
+        directory: "/home/mike/project",
+      },
+      {
+        class: "builtin:recursive force delete",
+        directory: "/home/mike/project",
+      },
     ]);
   });
 

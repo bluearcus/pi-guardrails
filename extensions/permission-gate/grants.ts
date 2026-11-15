@@ -1,42 +1,55 @@
 import {
-  type DangerousCommandMatch,
-  STRUCTURAL_PATTERN,
+  type CommandClassKey,
+  type CommandGrant,
+  commandClassKey,
+  deleteTargetsFor,
+  describeCommandClass as describeClass,
+  grantDirectoryFor,
+  normalizeGrantDirectory,
+  patternClassKey,
 } from "../../src/core/commands";
 import { configLoader } from "../../src/shared/config";
 import { compileCommandPatterns } from "../../src/shared/matching";
 
 /**
- * Command grants are taken for a class, not for one command string.
+ * Command grants are taken for a class of command in a directory.
  *
- * A dangerous command is flagged by a rule — a built-in matcher or a
- * configured pattern — and the same rule flags the next command of the same
- * shape. An answer to that prompt is only worth anything if it carries over to
- * the rule, so a grant names the rule rather than the command that happened to
- * be on screen: `builtin:<description>` for a built-in matcher, `pattern:<pattern>`
- * for a configured pattern.
+ * A dangerous command is flagged by a rule — a built-in matcher or a configured
+ * pattern — and the same rule flags the next command of the same shape, so an
+ * answer to that prompt has to name the rule rather than the command line that
+ * happened to be on screen. And what the user is trusting is a place: recursive
+ * force delete for the directory the task is happening in, not for the whole
+ * machine. A grant is therefore the pair — `builtin:recursive force delete` in
+ * `/home/mike/project` — and a command is excused only when the grant covers
+ * both its class and where its targets are.
  *
- * Grants live in config (`permissionGate.allowedClasses`), so a session grant
- * and a permanent grant are the same entry in a different scope: memory resets
- * on reload, local and global do not.
+ * Grants live in config (`permissionGate.grants`), so a session grant and a
+ * permanent grant are the same entry in a different scope: memory resets on
+ * reload, local and global do not.
  */
-export type CommandClassKey = string;
 
-export const BUILTIN_CLASS_PREFIX = "builtin:";
-export const PATTERN_CLASS_PREFIX = "pattern:";
+export type { CommandClassKey, CommandGrant };
+export { commandClassKey, patternClassKey };
 
-/** The class a flagged command was matched as. */
-export function commandClassKey(match: DangerousCommandMatch): CommandClassKey {
-  return match.pattern === STRUCTURAL_PATTERN
-    ? `${BUILTIN_CLASS_PREFIX}${match.description}`
-    : `${PATTERN_CLASS_PREFIX}${match.pattern}`;
+/** Where a grant applies, spelled for a prompt or a settings list. */
+export function describeGrantDirectory(directory: string): string {
+  const home = process.env.HOME;
+  if (home && (directory === home || directory.startsWith(`${home}/`))) {
+    return `~${directory.slice(home.length)}`;
+  }
+  return directory;
 }
 
-/** What a class is called in a prompt or in settings. */
-export function describeCommandClass(key: CommandClassKey): string {
-  for (const prefix of [BUILTIN_CLASS_PREFIX, PATTERN_CLASS_PREFIX]) {
-    if (key.startsWith(prefix)) return key.slice(prefix.length);
-  }
-  return key;
+/** What a class is called, without its `builtin:` or `pattern:` prefix. */
+export function describeCommandClass(classKey: CommandClassKey): string {
+  return describeClass(classKey);
+}
+
+/** A grant as the prompt and the settings list show it. */
+export function describeGrant(grant: CommandGrant): string {
+  return `${describeCommandClass(grant.class)} under ${describeGrantDirectory(
+    grant.directory,
+  )}`;
 }
 
 export function isCommandAllowed(command: string): boolean {
@@ -46,27 +59,53 @@ export function isCommandAllowed(command: string): boolean {
   );
 }
 
-/** Whether this class of command has already been allowed. */
-export function isCommandClassAllowed(key: CommandClassKey): boolean {
-  return configLoader.getConfig().permissionGate.allowedClasses.includes(key);
+/**
+ * The grant to offer for a flagged command: the class it was matched as, in the
+ * one directory that would cover it. Undefined when the action spans directories
+ * no single grant covers, or the gate cannot place it at all — then there is
+ * nothing honest to offer, and the user only gets to allow the command once.
+ */
+export function grantCandidateFor(
+  classKey: CommandClassKey,
+  command: string,
+  cwd: string | undefined,
+): CommandGrant | undefined {
+  const directory = grantDirectoryFor(
+    classKey === DELETE_CLASS ? deleteTargetsFor(command) : [],
+    cwd,
+  );
+  if (!directory) return undefined;
+  if (isGrantTooBroad(directory)) return undefined;
+  return { class: classKey, directory };
+}
+
+const DELETE_CLASS: CommandClassKey = "builtin:recursive force delete";
+
+/**
+ * A grant for the whole home directory would cover the user's own work, which is
+ * the one thing a working-data grant is never about.
+ */
+export function isGrantTooBroad(directory: string): boolean {
+  const home = process.env.HOME;
+  return directory === "/" || (home !== undefined && directory === home);
 }
 
 export interface CommandGrantSaveResult {
   scope: "memory" | "local" | "global";
   /** Where the grant lives, or null for the in-memory session scope. */
   path: string | null;
-  /** False when the class was already granted in that scope. */
+  /** False when that grant was already in the scope. */
   added: boolean;
 }
 
 /**
- * Add a class grant to one scope, keeping everything else that scope holds.
- * The scope's own raw config is read first: saving the resolved config instead
- * would write merged defaults into the file and drop whatever the scope already
- * held outside `permissionGate`.
+ * Add a grant to one scope, keeping everything else that scope holds. The
+ * scope's own raw config is read first: saving the resolved config instead would
+ * write merged defaults into the file and drop whatever the scope already held
+ * outside `permissionGate`.
  */
 export async function saveCommandGrant(
-  key: CommandClassKey,
+  grant: CommandGrant,
   scope: "memory" | "local" | "global",
 ): Promise<CommandGrantSaveResult> {
   const raw = (configLoader.getRawConfig(scope) ?? {}) as Record<
@@ -74,14 +113,22 @@ export async function saveCommandGrant(
     unknown
   >;
   const permissionGate = (raw.permissionGate ?? {}) as Record<string, unknown>;
-  const existing = Array.isArray(permissionGate.allowedClasses)
-    ? permissionGate.allowedClasses.filter(
-        (entry): entry is string =>
-          typeof entry === "string" && entry.trim() !== "",
+  const existing = Array.isArray(permissionGate.grants)
+    ? permissionGate.grants.filter(
+        (entry): entry is CommandGrant =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as CommandGrant).class === "string" &&
+          typeof (entry as CommandGrant).directory === "string",
       )
     : [];
 
-  if (existing.includes(key)) {
+  if (
+    existing.some(
+      (entry) =>
+        entry.class === grant.class && entry.directory === grant.directory,
+    )
+  ) {
     return { scope, path: configLoader.getScopePath(scope), added: false };
   }
 
@@ -89,9 +136,71 @@ export async function saveCommandGrant(
     ...raw,
     permissionGate: {
       ...permissionGate,
-      allowedClasses: [...existing, key],
+      grants: [...existing, grant],
     },
   });
 
   return { scope, path: configLoader.getScopePath(scope), added: true };
+}
+
+/** Remove one grant from a scope's own config, leaving the rest of it alone. */
+export async function removeCommandGrant(
+  grant: CommandGrant,
+  scope: "memory" | "local" | "global",
+): Promise<boolean> {
+  const raw = (configLoader.getRawConfig(scope) ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const permissionGate = (raw.permissionGate ?? {}) as Record<string, unknown>;
+  const existing = Array.isArray(permissionGate.grants)
+    ? permissionGate.grants.filter(
+        (entry): entry is CommandGrant =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as CommandGrant).class === "string" &&
+          typeof (entry as CommandGrant).directory === "string",
+      )
+    : [];
+  const kept = existing.filter(
+    (entry) =>
+      entry.class !== grant.class || entry.directory !== grant.directory,
+  );
+  if (kept.length === existing.length) return false;
+
+  await configLoader.save(scope, {
+    ...raw,
+    permissionGate: { ...permissionGate, grants: kept },
+  });
+  return true;
+}
+
+/**
+ * Where a grant stored in config actually lives. A grant can be in any scope, so
+ * revoking one means finding the scope that holds it, global last because it is
+ * the broadest reach.
+ */
+export function findGrantScope(grant: CommandGrant): CommandGrantSaveResult {
+  const normalized = normalizeGrantDirectory(grant.directory);
+  const scope = (["local", "global"] as const).find((candidate) => {
+    const raw = configLoader.getRawConfig(candidate) as {
+      permissionGate?: { grants?: unknown };
+    } | null;
+    const entries = Array.isArray(raw?.permissionGate?.grants)
+      ? raw.permissionGate.grants
+      : [];
+    return entries.some(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        (entry as CommandGrant).class === grant.class &&
+        normalizeGrantDirectory((entry as CommandGrant).directory) ===
+          normalized,
+    );
+  });
+  return {
+    scope: scope ?? "memory",
+    path: scope ? configLoader.getScopePath(scope) : null,
+    added: false,
+  };
 }

@@ -8,7 +8,9 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import type { CommandGrant } from "../../src/core/commands";
 import { truncateToWidth } from "../shared/truncate";
+import { describeGrant } from "./grants";
 
 interface MinimalTheme {
   fg(color: string, text: string): string;
@@ -111,47 +113,72 @@ export interface PermissionGatePromptOption {
 }
 
 /**
- * The answers the prompt offers. A grant covers the class the command was
- * flagged as — every command that same rule flags next — so the label names the
- * class rather than pretending the answer is about this command alone.
+ * The answers the prompt offers. A grant covers one class of command inside one
+ * directory, so the labels say both: the class the rule flagged, and the
+ * directory the answer applies to. A command whose action spans directories no
+ * single grant covers gets no grant answer at all — only allowing this one.
  */
 export function permissionGatePromptOptions(
-  classLabel: string,
+  grant: CommandGrant | undefined,
   alwaysEnabled: boolean,
 ): PermissionGatePromptOption[] {
-  return [
+  const options: PermissionGatePromptOption[] = [
     { label: "Allow once", result: "allow", key: "y", disabled: false },
-    {
-      label: `Allow "${classLabel}" this session`,
-      result: "allow-session",
-      key: "a",
-      disabled: false,
-    },
-    {
-      label: `Always allow "${classLabel}"`,
-      result: "allow-always",
-      key: "A",
-      disabled: !alwaysEnabled,
-    },
+  ];
+
+  if (grant) {
+    const grantLabel = describeGrant(grant);
+    options.push(
+      {
+        label: `Allow ${grantLabel} this session`,
+        result: "allow-session",
+        key: "a",
+        disabled: false,
+      },
+      {
+        label: `Always allow ${grantLabel}`,
+        result: "allow-always",
+        key: "A",
+        disabled: !alwaysEnabled,
+      },
+    );
+  }
+
+  options.push(
     { label: "Deny", result: "deny", key: "n", disabled: false },
     { label: "Decline and stop", result: "stop", key: "s", disabled: false },
-  ];
+  );
+  return options;
 }
 
 export function enabledPermissionGatePromptOptions(
-  classLabel: string,
+  grant: CommandGrant | undefined,
   alwaysEnabled: boolean,
 ): PermissionGatePromptOption[] {
-  return permissionGatePromptOptions(classLabel, alwaysEnabled).filter(
+  return permissionGatePromptOptions(grant, alwaysEnabled).filter(
     (option) => !option.disabled,
   );
+}
+
+/**
+ * The line that says what the answer means, because a grant is not the same
+ * thing as allowing this command: it is this class of command, in this
+ * directory, and nowhere else.
+ */
+export function permissionGateGrantNote(
+  grant: CommandGrant | undefined,
+): string {
+  if (!grant) {
+    return "No single directory covers this action, so only this command can be allowed.";
+  }
+  return `A grant covers ${describeGrant(grant)} only. Another directory still asks.`;
 }
 
 export interface PermissionGateConfirmOptions {
   /** What the decision delegates said about this command. */
   review?: string;
-  /** The class of command being answered, used in grant labels. */
-  classLabel: string;
+  /** The grant this answer would save, if one can be named. */
+  grant?: CommandGrant;
   /** Whether an always grant can be saved from this session. */
   alwaysEnabled?: boolean;
 }
@@ -162,8 +189,9 @@ export function createPermissionGateConfirmComponent(
   confirmOptions: PermissionGateConfirmOptions,
 ) {
   const review = confirmOptions.review;
+  const grant = confirmOptions.grant;
   const promptOptions = permissionGatePromptOptions(
-    confirmOptions.classLabel,
+    grant,
     confirmOptions.alwaysEnabled ?? true,
   );
 
@@ -211,6 +239,12 @@ export function createPermissionGateConfirmComponent(
     container.addChild(new Spacer(1));
     const optionsText = new Text("", 0, 0);
     container.addChild(optionsText);
+    const noteText = new Text(
+      theme.fg("dim", permissionGateGrantNote(grant)),
+      1,
+      0,
+    );
+    container.addChild(noteText);
     container.addChild(new Spacer(1));
     container.addChild(
       new Text(
@@ -276,6 +310,14 @@ export function createPermissionGateConfirmComponent(
                 )}`,
             )
             .join("\n"),
+        );
+        noteText.setText(
+          theme.fg(
+            "dim",
+            wrapTextWithAnsi(permissionGateGrantNote(grant), contentWidth).join(
+              "\n",
+            ),
+          ),
         );
         return container.render(width);
       },

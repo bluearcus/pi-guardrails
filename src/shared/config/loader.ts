@@ -4,7 +4,11 @@ import {
   type Scope,
 } from "@aliou/pi-utils-settings";
 import pkg from "../../../package.json" with { type: "json" };
-import { normalizeScratchRoots } from "../../core/commands/scratch";
+import type { CommandGrant } from "../../core/commands";
+import {
+  normalizeGrantDirectory,
+  normalizeScratchRoots,
+} from "../../core/commands";
 import type { AllowedPath } from "../../core/paths/path";
 import {
   CHAT_REVIEW_REASONING_LEVELS,
@@ -48,17 +52,29 @@ function mergePatternArrays<T extends { pattern: string }>(
   return [...merged.values()];
 }
 
-/** String arrays unioned across scopes by value, in scope order. */
-function mergeStringArrays(...lists: (string[] | undefined)[]): string[] {
-  const merged = new Set<string>();
+/**
+ * Class grants unioned across scopes by class and directory, in scope order. An
+ * entry whose directory the gate cannot name is dropped rather than trusted.
+ */
+function mergeCommandGrants(
+  ...lists: (CommandGrant[] | undefined)[]
+): CommandGrant[] {
+  const merged = new Map<string, CommandGrant>();
   for (const list of lists) {
-    for (const entry of list ?? []) {
-      if (typeof entry !== "string") continue;
-      const value = entry.trim();
-      if (value) merged.add(value);
+    if (!Array.isArray(list)) continue;
+    for (const entry of list) {
+      if (!entry || typeof entry !== "object") continue;
+      const grant = entry as { class?: unknown; directory?: unknown };
+      if (typeof grant.class !== "string" || !grant.class.trim()) continue;
+      const directory = normalizeGrantDirectory(grant.directory);
+      if (!directory) continue;
+      const key = `${grant.class.trim()}\u0000${directory}`;
+      if (!merged.has(key)) {
+        merged.set(key, { class: grant.class.trim(), directory });
+      }
     }
   }
-  return [...merged];
+  return [...merged.values()];
 }
 
 export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
@@ -121,10 +137,10 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
         memory?.permissionGate?.autoDenyPatterns,
       );
 
-      resolved.permissionGate.allowedClasses = mergeStringArrays(
-        global?.permissionGate?.allowedClasses,
-        local?.permissionGate?.allowedClasses,
-        memory?.permissionGate?.allowedClasses,
+      resolved.permissionGate.grants = mergeCommandGrants(
+        global?.permissionGate?.grants,
+        local?.permissionGate?.grants,
+        memory?.permissionGate?.grants,
       );
 
       // alwaysScope: highest-priority scope wins (memory > local > global), and

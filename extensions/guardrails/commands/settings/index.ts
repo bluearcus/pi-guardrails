@@ -27,6 +27,7 @@ import { configLoader } from "../../../../src/shared/config";
 import type { GuardrailsFeatureId } from "../../../../src/shared/events";
 import { PatternEditor } from "../../components/pattern-editor";
 import { AddRuleSubmenu } from "./add-rule-wizard";
+import { GrantListEditor } from "./grant-list-editor";
 import { PathListEditor } from "./path-list-editor";
 import {
   addPolicyRuleDraft,
@@ -460,19 +461,19 @@ export function registerGuardrailsSettings(
         });
       }
 
-      function commandClassListSubmenu(
+      function commandGrantListSubmenu(
         _val: string,
         submenuDone: (v?: string) => void,
       ) {
-        const scoped = scopedConfig.permissionGate?.allowedClasses;
-        let latest = [...(scoped ?? resolved.permissionGate.allowedClasses)];
-        return new ArrayEditor({
-          label: "Allowed command classes",
-          items: latest,
+        const scoped = scopedConfig.permissionGate?.grants;
+        let latest = [...(scoped ?? resolved.permissionGate.grants)];
+        return new GrantListEditor({
+          label: "Command grants",
+          grants: latest,
           theme: settingsTheme,
-          onSave: (items) => {
-            latest = items.map((item) => item.trim()).filter(Boolean);
-            applyDraft("permissionGate.allowedClasses", latest);
+          onSave: (grants) => {
+            latest = grants;
+            applyDraft("permissionGate.grants", latest);
           },
           onDone: () =>
             submenuDone(latest.length > 0 ? `${latest.length} items` : "none"),
@@ -798,12 +799,12 @@ export function registerGuardrailsSettings(
               ),
             },
             {
-              id: "permissionGate.allowedClasses",
-              label: "Allowed command classes",
+              id: "permissionGate.grants",
+              label: "Command grants",
               description:
-                "Kinds of flagged command you always allow, one per line: builtin:<what the flag was called> for a built-in match (builtin:recursive force delete covers any rm -rf), pattern:<pattern> for a configured pattern. Auto-deny patterns still block",
-              currentValue: count("permissionGate.allowedClasses"),
-              submenu: commandClassListSubmenu,
+                "Kinds of flagged command you allow inside one directory each, e.g. recursive force delete under a build directory. A grant never covers that directory itself, nor the same class anywhere else. Auto-deny patterns still block",
+              currentValue: count("permissionGate.grants"),
+              submenu: commandGrantListSubmenu,
             },
             {
               id: "permissionGate.alwaysScope",
