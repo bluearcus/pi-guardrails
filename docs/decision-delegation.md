@@ -31,10 +31,10 @@ sessions an allow runs the action and a block blocks it; anything else falls
 back to the block that feature would already have given you, now with the
 reviewers' reasoning attached.
 
-A command whose class the user has already allowed never reaches delegates
-either: permission-gate reads `permissionGate.allowedClasses` right after the
-risk is found, so a grant is an answer that was given once and does not get
-reviewed again.
+A command a grant covers never reaches delegates either: `checkDangerousCommand`
+consults `permissionGate.grants` before it reports a risk, so a covered command
+is safe as far as permission-gate is concerned and nothing prompts or reviews
+it. A grant is an answer that was given once, for one class in one directory.
 
 Merge rule:
 
