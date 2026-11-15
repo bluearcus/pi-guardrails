@@ -48,6 +48,19 @@ function mergePatternArrays<T extends { pattern: string }>(
   return [...merged.values()];
 }
 
+/** String arrays unioned across scopes by value, in scope order. */
+function mergeStringArrays(...lists: (string[] | undefined)[]): string[] {
+  const merged = new Set<string>();
+  for (const list of lists) {
+    for (const entry of list ?? []) {
+      if (typeof entry !== "string") continue;
+      const value = entry.trim();
+      if (value) merged.add(value);
+    }
+  }
+  return [...merged];
+}
+
 export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
   return new GuardrailsConfigLoader("guardrails", DEFAULT_CONFIG, {
     scopes: ["global", "local", "memory"],
@@ -107,6 +120,22 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
         local?.permissionGate?.autoDenyPatterns,
         memory?.permissionGate?.autoDenyPatterns,
       );
+
+      resolved.permissionGate.allowedClasses = mergeStringArrays(
+        global?.permissionGate?.allowedClasses,
+        local?.permissionGate?.allowedClasses,
+        memory?.permissionGate?.allowedClasses,
+      );
+
+      // alwaysScope: highest-priority scope wins (memory > local > global), and
+      // an invalid value falls through to a lower scope rather than resolving.
+      const permissionGateAlwaysScope = [
+        memory?.permissionGate?.alwaysScope,
+        local?.permissionGate?.alwaysScope,
+        global?.permissionGate?.alwaysScope,
+      ].find((value) => value === "local" || value === "global");
+      resolved.permissionGate.alwaysScope =
+        permissionGateAlwaysScope ?? "local";
 
       const scratchDelete =
         memory?.permissionGate?.scratchDelete ??

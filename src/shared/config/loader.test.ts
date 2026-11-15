@@ -372,6 +372,125 @@ describe("permission gate pattern merging across scopes", () => {
   });
 });
 
+describe("permissionGate command class grants", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vol.reset();
+  });
+
+  it("has no allowed classes until something is granted", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-default");
+    vol.fromJSON({ "/tmp/pi-agent-classes-default/.keep": "" });
+
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+
+    expect(configLoader.getConfig().permissionGate.allowedClasses).toEqual([]);
+    expect(configLoader.getConfig().permissionGate.alwaysScope).toBe("local");
+  });
+
+  it("unions allowedClasses across scopes, deduped", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-merge");
+    const cwd = process.cwd();
+    vol.fromJSON({
+      "/tmp/pi-agent-classes-merge/extensions/guardrails.json": JSON.stringify({
+        version: pkg.version,
+        permissionGate: {
+          allowedClasses: [
+            "builtin:recursive force delete",
+            "pattern:docker run --privileged",
+          ],
+        },
+      }),
+      [join(cwd, ".pi/extensions/guardrails.json")]: JSON.stringify({
+        version: pkg.version,
+        permissionGate: {
+          allowedClasses: ["builtin:recursive force delete", "pattern:mkfs."],
+        },
+      }),
+    });
+
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+    await configLoader.loadProject({
+      cwd: process.cwd(),
+      isProjectTrusted: () => true,
+    });
+
+    expect(configLoader.getConfig().permissionGate.allowedClasses).toEqual([
+      "builtin:recursive force delete",
+      "pattern:docker run --privileged",
+      "pattern:mkfs.",
+    ]);
+  });
+
+  it("keeps a session grant alongside earlier scope entries when saving memory", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-classes-memory");
+    vol.fromJSON({
+      "/tmp/pi-agent-classes-memory/extensions/guardrails.json": JSON.stringify(
+        {
+          version: pkg.version,
+          pathAccess: { mode: "block" },
+          permissionGate: { allowedClasses: ["builtin:superuser command"] },
+        },
+      ),
+    });
+
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+
+    // Saving a grant must not erase the scope config it is added to, nor a
+    // grant already taken this session.
+    await configLoader.save("memory", {
+      pathAccess: { mode: "block" },
+      permissionGate: {
+        allowedClasses: [
+          "builtin:superuser command",
+          "builtin:recursive force delete",
+        ],
+      },
+    });
+
+    const config = configLoader.getConfig();
+    expect(config.pathAccess.mode).toBe("block");
+    expect(config.permissionGate.allowedClasses).toEqual([
+      "builtin:superuser command",
+      "builtin:recursive force delete",
+    ]);
+  });
+
+  it("resolves permissionGate.alwaysScope by scope priority", async () => {
+    vi.stubEnv("PI_CODING_AGENT_DIR", "/tmp/pi-agent-gate-always-scope");
+    const cwd = process.cwd();
+    vol.fromJSON({
+      "/tmp/pi-agent-gate-always-scope/extensions/guardrails.json":
+        JSON.stringify({
+          version: pkg.version,
+          permissionGate: { alwaysScope: "global" },
+        }),
+      [join(cwd, ".pi/extensions/guardrails.json")]: JSON.stringify({
+        version: pkg.version,
+        permissionGate: { alwaysScope: "bogus" },
+      }),
+    });
+
+    const configLoader = createGuardrailsConfigLoader();
+    await configLoader.load();
+    await configLoader.loadProject({
+      cwd: process.cwd(),
+      isProjectTrusted: () => true,
+    });
+
+    // The invalid local value falls through to the global config's.
+    expect(configLoader.getConfig().permissionGate.alwaysScope).toBe("global");
+
+    await configLoader.save("memory", {
+      permissionGate: { alwaysScope: "local" },
+    });
+    expect(configLoader.getConfig().permissionGate.alwaysScope).toBe("local");
+  });
+});
+
 describe("permissionGate.scratchDelete", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

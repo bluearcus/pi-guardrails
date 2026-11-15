@@ -80,7 +80,10 @@ export type PathAccessMode = "allow" | "ask" | "block";
  * - `global`: user-wide config (`~/.pi/agent/extensions/guardrails.json`),
  *   so the same grant applies in every project.
  */
-export type PathAccessAlwaysScope = "local" | "global";
+export type AlwaysGrantScope = "local" | "global";
+
+/** Alias of `AlwaysGrantScope`, which covers both grant kinds. */
+export type PathAccessAlwaysScope = AlwaysGrantScope;
 
 /**
  * Which operations the outside-workspace gate applies to.
@@ -209,6 +212,19 @@ export interface GuardrailsConfig {
     /** Command patterns that are always blocked without prompting. */
     autoDenyPatterns?: PatternConfig[];
     /**
+     * Command classes the user chose "always allow" for. A class is one kind of
+     * flagged risk, not one command string, so it covers the next command that
+     * is flagged the same way:
+     * - `builtin:<description>` covers a built-in structural match, e.g.
+     *   `builtin:recursive force delete` for any `rm -rf`.
+     * - `pattern:<pattern>` covers a configured dangerous pattern, e.g.
+     *   `pattern:docker run --privileged`.
+     * Entries union across scopes. Auto-deny patterns still win.
+     */
+    allowedClasses?: string[];
+    /** Config scope used when the user picks "Allow … always" in the prompt. Default: "local". */
+    alwaysScope?: AlwaysGrantScope;
+    /**
      * Recursive force delete confined to an agent scratch root. On by default:
      * deleting the agent's own scratch data is ordinary work. A delete that
      * names a wildcard, a variable, a relative path, the whole scratch root, or
@@ -258,6 +274,9 @@ export interface ResolvedConfig {
     requireConfirmation: boolean;
     allowedPatterns: PatternConfig[];
     autoDenyPatterns: PatternConfig[];
+    /** Command classes permanently allowed, unioned across scopes. */
+    allowedClasses: string[];
+    alwaysScope: AlwaysGrantScope;
     /** Recursive deletes confined to these roots are not flagged. */
     scratchDelete: { enabled: boolean; roots: string[] };
   };

@@ -167,6 +167,17 @@
               },
               "description": "Command patterns that are always blocked without prompting."
             },
+            "allowedClasses": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Command classes the user chose \"always allow\" for. A class is one kind of flagged risk, not one command string, so it covers the next command that is flagged the same way:\n- `builtin:<description>` covers a built-in structural match, e.g.   `builtin:recursive force delete` for any `rm -rf`.\n- `pattern:<pattern>` covers a configured dangerous pattern, e.g.   `pattern:docker run --privileged`. Entries union across scopes. Auto-deny patterns still win."
+            },
+            "alwaysScope": {
+              "$ref": "#/definitions/AlwaysGrantScope",
+              "description": "Config scope used when the user picks \"Allow … always\" in the prompt. Default: \"local\"."
+            },
             "scratchDelete": {
               "type": "object",
               "properties": {
@@ -363,6 +374,10 @@
       "description": "A path grant with an explicit kind.\n\n`file` matches the exact path only. `directory` matches the directory itself and any descendant (boundary/prefix match).\n\nThis replaces the previous trailing-slash convention on a flat `string[]`, where the kind was inferred from whether a path ended in `/`."
     },
     "PathAccessAlwaysScope": {
+      "$ref": "#/definitions/AlwaysGrantScope",
+      "description": "Alias of `AlwaysGrantScope`, which covers both grant kinds."
+    },
+    "AlwaysGrantScope": {
       "type": "string",
       "enum": [
         "local",
