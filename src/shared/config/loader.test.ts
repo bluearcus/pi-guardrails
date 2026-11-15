@@ -651,6 +651,7 @@ describe("delegation and classifier resolution", () => {
         instructions: "",
         allowConfidence: 0.8,
       },
+      allowUnrequestedLowImpact: true,
     });
   });
 
@@ -749,5 +750,12 @@ describe("delegation and classifier resolution", () => {
       classifier: { strategy: "vibes" },
     });
     expect(config.classifier.strategy).toBe("fallback");
+  });
+
+  it("ignores an unrequested-impact setting that is not a boolean", async () => {
+    const config = await load("/tmp/pi-agent-delegation-unrequested", {
+      classifier: { allowUnrequestedLowImpact: "yes" },
+    });
+    expect(config.classifier.allowUnrequestedLowImpact).toBe(true);
   });
 });

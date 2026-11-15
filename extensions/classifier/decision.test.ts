@@ -101,9 +101,48 @@ describe("decide", () => {
   });
 
   it("asks when authorization is unclear", () => {
-    expect(decide(facts({ authorization: "unclear" }), WITH_CONTEXT).code).toBe(
-      "escalate-ambiguous",
-    );
+    expect(
+      decide(facts({ authorization: "unclear", impact: 1.5 }), WITH_CONTEXT)
+        .code,
+    ).toBe("escalate-ambiguous");
+  });
+
+  it("acts on an unrequested step whose effect is trivially reversible", () => {
+    expect(
+      decide(facts({ authorization: "unclear", impact: 1 }), WITH_CONTEXT),
+    ).toMatchObject({
+      verdict: "allow",
+      code: "approved-unrequested",
+      reason:
+        "your request does not name this, but impact 1.0/4 is trivially reversible",
+    });
+  });
+
+  it("asks about an unrequested low-impact step when context is thin", () => {
+    expect(
+      decide(
+        facts({ authorization: "unclear", impact: 1, sufficiency: 0.6 }),
+        WITH_CONTEXT,
+      ).code,
+    ).toBe("escalate-ambiguous");
+  });
+
+  it("asks about an unrequested step when the relaxation is turned off", () => {
+    expect(
+      decide(facts({ authorization: "unclear", impact: 0 }), {
+        hasTaskContext: true,
+        thresholds: { unrequestedImpact: 0 },
+      }).code,
+    ).toBe("escalate-ambiguous");
+  });
+
+  it("still asks about an unrequested step at the destructive bar", () => {
+    expect(
+      decide(
+        facts({ authorization: "unclear", impact: 3, impactConfidence: 0.9 }),
+        WITH_CONTEXT,
+      ).code,
+    ).toBe("escalate-ambiguous");
   });
 
   it("asks about an in-scope action at or above the destructive threshold", () => {

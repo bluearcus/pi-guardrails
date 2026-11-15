@@ -192,6 +192,10 @@ export function createGuardrailsConfigLoader(): GuardrailsConfigLoader {
       if (!["fallback", "random", "consensus"].includes(strategy)) {
         resolved.classifier.strategy = DEFAULT_CONFIG.classifier.strategy;
       }
+      if (typeof resolved.classifier.allowUnrequestedLowImpact !== "boolean") {
+        resolved.classifier.allowUnrequestedLowImpact =
+          DEFAULT_CONFIG.classifier.allowUnrequestedLowImpact;
+      }
       resolved.classifier.models = Array.isArray(resolved.classifier.models)
         ? resolved.classifier.models.filter(
             (model): model is string =>

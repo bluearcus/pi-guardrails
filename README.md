@@ -74,6 +74,8 @@ Delegation runs with or without a UI, so `pi -p` and JSON sessions get the same 
 
 The built-in model reviewer judges whether a flagged action is in scope of what you asked. A model the catalogue lists as a classifier is asked through Pi's classify API; any other model — a cloud chat model such as `google/gemini-3.1-flash-lite` — is asked the same rubric and answers as JSON. Enable it with `features.classifier` (Settings → Features → Classifier).
 
+A request to do a task covers the housekeeping doing it needs, so a reviewer that judges an unrequested step trivially reversible runs it instead of asking — the same reasoning that prices a scratch delete as impact 0–1. Set `classifier.allowUnrequestedLowImpact` to `false` (Settings → Classifier → Act on implied housekeeping) to be asked about anything your request does not clearly cover, however small its effect.
+
 See [docs/decision-delegation.md](docs/decision-delegation.md) for the rules, the reviewer, and how to write a delegate, with runnable examples in `examples/delegates/`.
 
 ## Extension events

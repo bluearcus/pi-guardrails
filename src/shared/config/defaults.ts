@@ -41,6 +41,7 @@ export const DEFAULT_CONFIG: ResolvedConfig = {
     models: ["opencode-go/deepseek-v4.1-flash"],
     strategy: "fallback",
     chat: { ...DEFAULT_CHAT_REVIEW },
+    allowUnrequestedLowImpact: true,
   },
   pathAccess: {
     mode: "ask",

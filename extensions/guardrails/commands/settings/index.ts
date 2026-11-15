@@ -700,6 +700,19 @@ export function registerGuardrailsSettings(
               values: CHAT_REVIEW_ALLOW_CONFIDENCE,
             },
             {
+              id: "classifier.allowUnrequestedLowImpact",
+              label: "Act on implied housekeeping",
+              description:
+                "Let the reviewer run a step your request does not name when it judges the effect trivially reversible — clearing its own scratch or build data. off asks about anything the request does not clearly cover",
+              currentValue:
+                scopedConfig.classifier?.allowUnrequestedLowImpact === undefined
+                  ? `inherited: ${resolved.classifier.allowUnrequestedLowImpact ? "on" : "off"}`
+                  : resolved.classifier.allowUnrequestedLowImpact
+                    ? "on"
+                    : "off",
+              values: ["on", "off"],
+            },
+            {
               id: "delegation.timeoutMs",
               label: "Decision timeout (ms)",
               description:
@@ -848,6 +861,14 @@ export function registerGuardrailsSettings(
         updated.classifier = {
           ...updated.classifier,
           chat: { ...updated.classifier?.chat, allowConfidence },
+        };
+        return updated;
+      }
+
+      if (id === "classifier.allowUnrequestedLowImpact") {
+        updated.classifier = {
+          ...updated.classifier,
+          allowUnrequestedLowImpact: newValue === "on",
         };
         return updated;
       }

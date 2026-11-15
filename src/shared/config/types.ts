@@ -154,6 +154,14 @@ export interface ClassifierConfig {
   strategy?: ClassifierStrategy;
   /** Settings for models asked as chat models. */
   chat?: ChatReviewConfig;
+  /**
+   * Act on a step your request does not name when the reviewer judges its
+   * effect trivially reversible and confined — a cleanup of the agent's own
+   * working data, an install, a generated file. On by default. Off asks about
+   * anything the request does not clearly cover, however small the effect.
+   * Default: true.
+   */
+  allowUnrequestedLowImpact?: boolean;
 }
 
 export interface GuardrailsConfig {
@@ -270,6 +278,7 @@ export interface ResolvedConfig {
       instructions: string;
       allowConfidence: number;
     };
+    allowUnrequestedLowImpact: boolean;
   };
   permissionGate: {
     patterns: DangerousPattern[];

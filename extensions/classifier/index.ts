@@ -33,6 +33,7 @@ export default async function classifier(pi: ExtensionAPI) {
         models: config.classifier.models,
         strategy: config.classifier.strategy,
         chat: config.classifier.chat,
+        allowUnrequestedLowImpact: config.classifier.allowUnrequestedLowImpact,
       });
     },
   });

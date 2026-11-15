@@ -5,6 +5,8 @@ export const TRUST_CONFIDENCE = 0.7;
 export const ALLOW_CONFIDENCE = 0.85;
 export const DESTRUCTIVE_IMPACT = 2.5;
 export const BLOCK_IMPACT = 2;
+/** Impact levels 0 and 1: trivially reversible, or confined to the workspace. */
+export const UNREQUESTED_IMPACT = 1.5;
 
 /** The thresholds every reviewer is judged by unless a caller overrides one. */
 export interface DecisionThresholds {
@@ -12,6 +14,13 @@ export interface DecisionThresholds {
   allow: number;
   destructiveImpact: number;
   blockImpact: number;
+  /**
+   * Impact below which a step your request does not name is still acted on.
+   * Clearing a scratch directory or replacing build output is judged by its
+   * effect, not by whether you asked for housekeeping. Set to 0 to require
+   * scope for everything.
+   */
+  unrequestedImpact: number;
 }
 
 export const DEFAULT_THRESHOLDS: DecisionThresholds = {
@@ -19,10 +28,12 @@ export const DEFAULT_THRESHOLDS: DecisionThresholds = {
   allow: ALLOW_CONFIDENCE,
   destructiveImpact: DESTRUCTIVE_IMPACT,
   blockImpact: BLOCK_IMPACT,
+  unrequestedImpact: UNREQUESTED_IMPACT,
 };
 
 export type ClassifierDecisionCode =
   | "approved"
+  | "approved-unrequested"
   | "escalate-insufficient-context"
   | "escalate-ambiguous"
   | "escalate-destructive"
@@ -192,6 +203,20 @@ export function decide(
   }
 
   if (authorization.label === "unclear") {
+    // A step your request does not name is not a step that exceeds it. When the
+    // effect is trivially reversible there is nothing to protect by asking, and
+    // the question is asked on every cleanup the agent does.
+    if (
+      sufficiency >= thresholds.trust &&
+      impact.level < thresholds.unrequestedImpact
+    ) {
+      return {
+        verdict: "allow",
+        code: "approved-unrequested",
+        reason: `your request does not name this, but ${impactText} is trivially reversible`,
+        facts,
+      };
+    }
     return {
       verdict: "ask",
       code: "escalate-ambiguous",

@@ -82,4 +82,26 @@ describe("buildClassifierRequest", () => {
     );
     expect(impact.criteria[2]).toContain("the task still relies on");
   });
+
+  it("counts implied housekeeping as covered by the request", () => {
+    const request = buildClassifierRequest({
+      action: { kind: "command", command: "rm -rf ./build" },
+      toolName: "bash",
+      cwd: "/workspace",
+      userRequests: ["rebuild the toolchain"],
+      agentClaim: "Clearing the old build output first.",
+      flaggedReason: "recursive force delete",
+    });
+
+    const authorization = request.questions.authorization;
+    if (authorization?.type !== "choice") {
+      throw new Error("expected a choice question");
+    }
+    expect(authorization.criteria.in_scope).toContain(
+      "clearing or rebuilding the agent's own working data",
+    );
+    expect(authorization.criteria.in_scope).toContain(
+      "It does not cover the user's source or data",
+    );
+  });
 });

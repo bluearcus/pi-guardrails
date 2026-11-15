@@ -16,6 +16,7 @@ import { type ContextMessage, collectTaskContext } from "./context";
 import {
   type ClassifierDecision,
   type ClassifierOutcome,
+  type DecisionThresholds,
   decide,
   unavailable,
 } from "./decision";
@@ -67,6 +68,7 @@ export async function classifyWithModel(
   request: ClassifierRequest,
   hasTaskContext: boolean,
   signal: AbortSignal,
+  decision: Partial<DecisionThresholds> = {},
 ): Promise<ModelRun> {
   const label = `${ref.provider}/${ref.model}`;
   const startedAt = performance.now();
@@ -88,7 +90,12 @@ export async function classifyWithModel(
 
   try {
     const outcome = await registry.classify(model, request, { signal });
-    return done(decide(outcome as ClassifierOutcome, { hasTaskContext }));
+    return done(
+      decide(outcome as ClassifierOutcome, {
+        hasTaskContext,
+        thresholds: decision,
+      }),
+    );
   } catch (error) {
     return done(unavailable(`${label} failed: ${errorText(error)}`));
   }
@@ -128,11 +135,19 @@ export async function reviewWithModel(
   hasTaskContext: boolean,
   signal: AbortSignal,
   chat: ChatReviewCallOptions = {},
+  decision: Partial<DecisionThresholds> = {},
 ): Promise<ModelRun> {
   const label = `${ref.provider}/${ref.model}`;
 
   if (resolveReviewModelKind(registry, ref) === "classifier") {
-    return classifyWithModel(registry, ref, request, hasTaskContext, signal);
+    return classifyWithModel(
+      registry,
+      ref,
+      request,
+      hasTaskContext,
+      signal,
+      decision,
+    );
   }
 
   const resolved = resolveChatModel(registry, ref.provider, ref.model);
@@ -152,6 +167,7 @@ export async function reviewWithModel(
     hasTaskContext,
     signal,
     chat,
+    decision,
   );
   return { model: label, ...run };
 }
@@ -194,6 +210,14 @@ export interface RunClassifierOptions {
   /** Options for the models configured as chat reviewers. */
   chat?: ChatReviewConfig | ChatReviewCallOptions;
   random?: () => number;
+  /**
+   * Act on an action the user's request does not name when the reviewer judges
+   * its effect trivially reversible. Defaults to on; false asks about anything
+   * the request does not clearly cover.
+   */
+  allowUnrequestedLowImpact?: boolean;
+  /** Threshold overrides for every reviewer's decision. */
+  decision?: Partial<DecisionThresholds>;
 }
 
 /**
@@ -238,6 +262,10 @@ export async function runClassifier(
     ...options.chat,
     sessionId: reviewSessionId(context.sessionManager),
   };
+  const decision: Partial<DecisionThresholds> =
+    options.allowUnrequestedLowImpact === false
+      ? { unrequestedImpact: 0 }
+      : (options.decision ?? {});
   const run = (ref: ModelRef) =>
     reviewWithModel(
       context.modelRegistry,
@@ -246,6 +274,7 @@ export async function runClassifier(
       hasTaskContext,
       context.signal,
       chatOptions,
+      decision,
     );
 
   const runs: ModelRun[] = [];

@@ -7,6 +7,7 @@ import {
 import {
   type ClassifierDecision,
   type ClassifierOutcome,
+  type DecisionThresholds,
   decide,
   unavailable,
 } from "./decision";
@@ -587,6 +588,7 @@ export async function reviewWithChatModel(
   hasTaskContext: boolean,
   signal: AbortSignal,
   options: ChatReviewCallOptions = {},
+  decision: Partial<DecisionThresholds> = {},
 ): Promise<ChatReviewRun> {
   const startedAt = performance.now();
   const done = (decision: ClassifierDecision): ChatReviewRun => ({
@@ -620,7 +622,10 @@ export async function reviewWithChatModel(
       withExplanation(
         decide(outcome, {
           hasTaskContext,
-          thresholds: { allow: chatAllowConfidence(options.allowConfidence) },
+          thresholds: {
+            allow: chatAllowConfidence(options.allowConfidence),
+            ...decision,
+          },
         }),
         outcome.explanation,
       ),

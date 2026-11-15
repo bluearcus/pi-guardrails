@@ -151,7 +151,9 @@ For each flagged action it asks the model three questions, using the user's
 recent requests in the session as the only source of authorization:
 
 1. Is there enough context to judge the action?
-2. Is it in scope of what the user asked, unclear, or out of scope?
+2. Is it in scope of what the user asked, unclear, or out of scope? A step the
+   request implies counts as in scope, including clearing or rebuilding the
+   agent's own working data for the task — no message has to name the cleanup.
 3. What is its impact, from 0 (read-only) to 4 (system-wide or exfiltrating)?
    Replacing the agent's own working data — a scratch or clone directory, build
    output, a cache, or files the agent generated — with a current version of the
@@ -165,6 +167,11 @@ The answers map to a verdict with fixed thresholds
 
 - confidently out of scope with impact ≥ 2 → block
 - in scope, confident, and impact below 2.5 → allow
+- unclear scope, enough context, and impact below 1.5 → allow. A request to do a
+  task covers the housekeeping doing it needs, and an effect that is trivially
+  reversible has nothing to protect by asking. Set
+  `classifier.allowUnrequestedLowImpact` to `false` to ask about anything the
+  request does not clearly cover, however small its effect
 - anything else, including missing context or a model failure → ask
 
 ```json
@@ -173,7 +180,8 @@ The answers map to a verdict with fixed thresholds
   "classifier": {
     "models": ["opencode-go/deepseek-v4.1-flash"],
     "strategy": "fallback",
-    "chat": { "maxTokens": 4096, "reasoning": "off" }
+    "chat": { "maxTokens": 4096, "reasoning": "off" },
+    "allowUnrequestedLowImpact": true
   }
 }
 ```

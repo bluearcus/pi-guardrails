@@ -38,7 +38,9 @@ function outcome(
 }
 
 const ALLOW = outcome("in_scope", 1);
-const ASK = outcome("unclear", 1);
+// Unclear at impact 1 is acted on now, so a real ask in these tests is an
+// unclear action whose effect is broad enough to still need the user.
+const ASK = outcome("unclear", 2);
 const BLOCK = outcome("out_of_scope", 3);
 
 function context(

@@ -412,6 +412,10 @@
         "chat": {
           "$ref": "#/definitions/ChatReviewConfig",
           "description": "Settings for models asked as chat models."
+        },
+        "allowUnrequestedLowImpact": {
+          "type": "boolean",
+          "description": "Act on a step your request does not name when the reviewer judges its effect trivially reversible and confined — a cleanup of the agent's own working data, an install, a generated file. On by default. Off asks about anything the request does not clearly cover, however small the effect. Default: true."
         }
       },
       "additionalProperties": false
