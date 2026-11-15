@@ -70,14 +70,18 @@ export class GrantListEditor implements Component {
     ];
 
     if (this.mode === "draft") {
-      const filled = this.step === "class" ? this.draft.directory : undefined;
+      const current = this.draft[this.step];
       lines.push(
         this.options.theme.hint(
           this.editIndex >= 0 ? "  Edit grant" : "  New grant",
         ),
       );
-      if (filled) {
-        lines.push(this.options.theme.hint(`  directory: ${filled}`));
+      if (this.editIndex >= 0) {
+        lines.push(
+          this.options.theme.hint(
+            `  ${this.step}: ${current || "(none)"} — Enter keeps it`,
+          ),
+        );
       }
       lines.push(
         this.options.theme.hint(
@@ -179,11 +183,14 @@ export class GrantListEditor implements Component {
       directory: grant?.directory ?? "",
       class: grant?.class ?? "",
     };
-    this.input.setValue(this.draft.directory);
+    // The current values show in the hint, and an empty answer keeps one, so
+    // editing means typing the replacement rather than deleting the old text.
+    this.input.setValue("");
   }
 
   private submitStep(): void {
-    const value = this.input.getValue().trim();
+    const typed = this.input.getValue().trim();
+    const value = typed || (this.editIndex >= 0 ? this.draft[this.step] : "");
 
     if (this.step === "directory") {
       const directory = normalizeGrantDirectory(value);
@@ -194,7 +201,7 @@ export class GrantListEditor implements Component {
       this.draft.directory = directory;
       this.step = "class";
       this.problem = undefined;
-      this.input.setValue(this.draft.class);
+      this.input.setValue("");
       return;
     }
 

@@ -115,8 +115,10 @@ export interface PermissionGatePromptOption {
 /**
  * The answers the prompt offers. A grant covers one class of command inside one
  * directory, so the labels say both: the class the rule flagged, and the
- * directory the answer applies to. A command whose action spans directories no
- * single grant covers gets no grant answer at all — only allowing this one.
+ * directory the answer applies to. Where no directory grant would honestly
+ * cover the action — the targets span directories, the action reaches outside
+ * the ground the call is working in, or the gate cannot place the command at all
+ * — there is no grant answer, only allowing this one command.
  */
 export function permissionGatePromptOptions(
   grant: CommandGrant | undefined,
@@ -169,7 +171,7 @@ export function permissionGateGrantNote(
   grant: CommandGrant | undefined,
 ): string {
   if (!grant) {
-    return "No single directory covers this action, so only this command can be allowed.";
+    return "No directory grant would cover this action — a grant is one class of command under one directory you are working in — so only this command can be allowed.";
   }
   return `A grant covers ${describeGrant(grant)} only. Another directory still asks.`;
 }

@@ -153,7 +153,9 @@ describe("createPermissionGateConfirmComponent", () => {
     ).rendered();
 
     expect(output).not.toContain("Allow recursive force delete under");
-    expect(output).toContain("No single directory covers this action");
+    expect(output.replace(/\s+/g, " ")).toContain(
+      "No directory grant would cover this action",
+    );
   });
 
   it("omits the always row when its grant cannot be saved", () => {
