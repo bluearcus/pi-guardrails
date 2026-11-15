@@ -10,7 +10,7 @@ Only actions that would prompt reach delegates.
 
 ```text
 permission-gate / path-access  tool_call
-├─ session grants, auto-deny, policies, safe checks   unchanged; delegates never see these
+├─ grants, auto-deny, policies, safe checks            unchanged; delegates never see these
 ├─ nothing would prompt                               unchanged; no delegation
 │    (requireConfirmation off, pathAccess "block")
 ├─ delegateDecision()                                 src/shared/delegation/dispatch.ts
@@ -30,6 +30,11 @@ Delegates are consulted whether or not there is a UI. In `pi -p`, JSON, and RPC
 sessions an allow runs the action and a block blocks it; anything else falls
 back to the block that feature would already have given you, now with the
 reviewers' reasoning attached.
+
+A command whose class the user has already allowed never reaches delegates
+either: permission-gate reads `permissionGate.allowedClasses` right after the
+risk is found, so a grant is an answer that was given once and does not get
+reviewed again.
 
 Merge rule:
 

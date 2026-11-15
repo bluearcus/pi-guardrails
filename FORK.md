@@ -29,6 +29,17 @@ every `rm -rf`. When merging upstream, keep `scratchScope` threaded from
 `createPermissionGateRule` into `checkDangerousCommand` and the exemption inside
 the built-in matcher loop only.
 
+Fork behavior change: a permission-gate grant covers a **class** of flagged
+command, not the command string. Upstream answers "allow for session" by storing
+an anchored regex for that exact command in `permissionGate.allowedPatterns`, so
+the next command of the same kind prompts again. Here `permissionGate.allowedClasses`
+holds `builtin:<matcher description>` or `pattern:<pattern>`; a session grant
+goes to the memory scope and an always grant to `permissionGate.alwaysScope`.
+Grants are saved by merging the target scope's own raw config, because
+`ConfigLoader.save()` replaces a scope wholesale. When merging upstream, keep
+`isCommandClassAllowed()` between `checkAction()` and `delegateDecision()`, keep
+it below the auto-deny match, and keep `saveCommandGrant()` merge-based.
+
 ## Remotes
 
 ```text

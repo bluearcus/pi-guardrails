@@ -17,6 +17,15 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
 - `config.version` is a schema marker for debugging/inspection, not the package version.
 - Events emitted on the Pi event bus for inter-extension communication are defined in `src/shared/events.ts`. Keep the public event contract backwards-compatible; `guardrails:action:prompted` exists only as a deprecated alias of `guardrails:prompt:opened`.
 - Decision delegates run before every fallback that needs no input: in permission-gate and path-access, `delegateDecision()` sits between the deterministic checks and both the confirm prompt and the no-UI block, so headless sessions get the same allow or block. `describeReview()` in `src/shared/delegation` renders the delegates' reasoning wherever an escalated action surfaces — prompts, select fallbacks, headless block reasons.
+- A permission-gate grant names the class that was flagged, never the command
+  string: `permissionGate.allowedClasses` holds `builtin:<matcher description>`
+  or `pattern:<pattern>`, and `commandClassKey()` in
+  `extensions/permission-gate/grants.ts` derives it from the match. Keep
+  `isCommandClassAllowed()` between `checkAction()` and `delegateDecision()` —
+  an answer already given is not reviewed again — and keep it below the
+  auto-deny match. `saveCommandGrant()` merges into the target scope's own raw
+  config because `ConfigLoader.save()` replaces a scope wholesale, which would
+  otherwise drop everything else that scope held.
 - A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses relative targets, wildcards and variables, the scratch root itself, and paths through a symlink. Keep `scratchScope` threaded from `createPermissionGateRule` into `checkDangerousCommand`.
 
 ## Documentation triggers

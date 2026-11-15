@@ -436,6 +436,25 @@ export function registerGuardrailsSettings(
         };
       }
 
+      function commandClassListSubmenu(
+        _val: string,
+        submenuDone: (v?: string) => void,
+      ) {
+        const scoped = scopedConfig.permissionGate?.allowedClasses;
+        let latest = [...(scoped ?? resolved.permissionGate.allowedClasses)];
+        return new ArrayEditor({
+          label: "Allowed command classes",
+          items: latest,
+          theme: settingsTheme,
+          onSave: (items) => {
+            latest = items.map((item) => item.trim()).filter(Boolean);
+            applyDraft("permissionGate.allowedClasses", latest);
+          },
+          onDone: () =>
+            submenuDone(latest.length > 0 ? `${latest.length} items` : "none"),
+        });
+      }
+
       function modelListSubmenu(
         _val: string,
         submenuDone: (v?: string) => void,
@@ -732,6 +751,24 @@ export function registerGuardrailsSettings(
                 "Auto-Deny Patterns",
                 "command",
               ),
+            },
+            {
+              id: "permissionGate.allowedClasses",
+              label: "Allowed command classes",
+              description:
+                "Kinds of flagged command you always allow, one per line: builtin:<what the flag was called> for a built-in match (builtin:recursive force delete covers any rm -rf), pattern:<pattern> for a configured pattern. Auto-deny patterns still block",
+              currentValue: count("permissionGate.allowedClasses"),
+              submenu: commandClassListSubmenu,
+            },
+            {
+              id: "permissionGate.alwaysScope",
+              label: "Always-grant scope",
+              description:
+                "Where 'Always allow …' grants are saved. local: this project only, global: every project",
+              currentValue:
+                scopedConfig.permissionGate?.alwaysScope ??
+                `inherited: ${resolved.permissionGate.alwaysScope}`,
+              values: ["local", "global"],
             },
           ],
         },

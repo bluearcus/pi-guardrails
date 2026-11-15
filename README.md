@@ -46,7 +46,11 @@ Checks tool calls that target paths outside the current working directory. It ca
 
 ### permission-gate
 
-Detects dangerous bash commands before they run — recursive deletes, privileged commands, disk formatting, broad permission changes, and any custom patterns you configure. You can allow once, allow for the session, deny, or decline and stop, which also aborts the current turn. Auto-deny patterns can set `terminate: true` to end the agent's turn after blocking, so it does not retry the blocked command.
+Detects dangerous bash commands before they run — recursive deletes, privileged commands, disk formatting, broad permission changes, and any custom patterns you configure. The prompt answers a **class** of command, not only the one on screen: allow this command once (`y`), allow its class for the session (`a`), always allow the class (`A`), deny (`n`), or decline and stop (`s`), which also aborts the current turn.
+
+**A grant covers the rule that flagged the command, not the command string.** Grants live in `permissionGate.allowedClasses` as `builtin:<what the flag was called>` for a built-in match or `pattern:<pattern>` for a configured one, so a grant for `recursive force delete` covers the next `rm -rf` too — a different path, a relative path, or a target built from a variable. A session grant lives in memory and resets on `/reload`; an always grant is saved to the scope `permissionGate.alwaysScope` names, the project config by default. Review or revoke them in Settings → Permission Gate → Allowed command classes.
+
+Allowed commands (`permissionGate.allowedPatterns`) still bypass the gate entirely. Auto-deny patterns are matched before a class grant is consulted, so a grant cannot rescue a command you auto-denied. Auto-deny patterns can set `terminate: true` to end the agent's turn after blocking, so it does not retry the blocked command.
 
 Command, policy, and path checks also look inside command and process substitutions, so a risky call wrapped in `$(...)` is still caught.
 
