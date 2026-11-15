@@ -92,6 +92,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
         patterns: config.permissionGate.patterns,
         useBuiltinMatchers: config.permissionGate.useBuiltinMatchers,
         scratchDelete: config.permissionGate.scratchDelete,
+        cwd: ctx.cwd,
       }),
     ]);
     if (safety.kind === "safe") return;

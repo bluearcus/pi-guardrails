@@ -5,17 +5,18 @@ import { classifyScratchDelete, normalizeScratchRoots } from "./scratch";
 const scope = { roots: ["/tmp"] };
 
 describe("normalizeScratchRoots", () => {
-  it("keeps absolute directories and drops the rest", () => {
+  it("keeps absolute directories normalized and relative ones as written", () => {
     expect(
       normalizeScratchRoots([
         "/tmp/",
         "/var/tmp",
         "/",
         "relative",
+        "./build/",
         "",
         5 as never,
       ]),
-    ).toEqual(["/tmp", "/var/tmp"]);
+    ).toEqual(["/tmp", "/var/tmp", "relative", "./build"]);
   });
 
   it("does not list a root twice", () => {
@@ -63,11 +64,48 @@ describe("classifyScratchDelete", () => {
     ).toBe(false);
   });
 
-  it("still flags a relative target, which depends on the working directory", () => {
+  it("still flags a relative target when the working directory is not known", () => {
     const verdict = classifyScratchDelete(["rm", "-rf", "tmp/b1"], scope);
     expect(verdict.confined).toBe(false);
     if (verdict.confined) return;
     expect(verdict.reason).toContain("relative");
+  });
+
+  it("places a relative target in the working directory it runs in", () => {
+    const working = { roots: ["/tmp"], cwd: "/tmp/work" };
+
+    expect(
+      classifyScratchDelete(["rm", "-rf", "build"], working).confined,
+    ).toBe(true);
+    expect(
+      classifyScratchDelete(["rm", "-rf", "./build/deep"], working).confined,
+    ).toBe(true);
+
+    // The same relative target from a working directory outside the scratch
+    // root is a delete somewhere else entirely.
+    const elsewhere = { roots: ["/tmp"], cwd: "/home/mike/project" };
+    const verdict = classifyScratchDelete(["rm", "-rf", "build"], elsewhere);
+    expect(verdict.confined).toBe(false);
+    if (verdict.confined) return;
+    expect(verdict.reason).toContain("outside the scratch roots");
+  });
+
+  it("takes a scratch root relative to the working directory", () => {
+    const scopeForProject = { roots: ["build"], cwd: "/home/mike/project" };
+
+    expect(
+      classifyScratchDelete(["rm", "-rf", "build/out"], scopeForProject)
+        .confined,
+    ).toBe(true);
+
+    // Deleting the declared root itself is still the whole root.
+    const verdict = classifyScratchDelete(
+      ["rm", "-rf", "build"],
+      scopeForProject,
+    );
+    expect(verdict.confined).toBe(false);
+    if (verdict.confined) return;
+    expect(verdict.reason).toContain("whole scratch root");
   });
 
   it("still flags a wildcard, which can match other people's scratch data", () => {

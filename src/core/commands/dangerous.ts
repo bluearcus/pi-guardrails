@@ -434,6 +434,27 @@ function matchBuiltinDangerous(
   return undefined;
 }
 
+/**
+ * Commands that move the working directory. Once one appears, a relative
+ * operand no longer names the directory the gate thinks it names, so relative
+ * targets stop being excusable.
+ */
+const MOVES_WORKING_DIRECTORY = new Set(["cd", "pushd", "popd"]);
+
+function movesWorkingDirectory(ast: Program): boolean {
+  let moves = false;
+  walkCommands(ast, (cmd) => {
+    if (!cmd) return false;
+    const name = cmd.words?.[0] ? wordToString(cmd.words[0]) : "";
+    if (MOVES_WORKING_DIRECTORY.has(name)) {
+      moves = true;
+      return true;
+    }
+    return false;
+  });
+  return moves;
+}
+
 export function checkDangerousCommand({
   command,
   patterns,
@@ -456,6 +477,15 @@ export function checkDangerousCommand({
     ast = undefined;
   }
 
+  // Relative scratch targets are only decidable with a known working directory,
+  // and a command that moves that directory first makes the gate's own knowledge
+  // of it wrong. Absolute targets are unaffected either way.
+  const scoped = scratchScope
+    ? ast && !movesWorkingDirectory(ast)
+      ? scratchScope
+      : { roots: scratchScope.roots }
+    : undefined;
+
   if (useBuiltinMatchers) {
     if (ast && ast.body.length > 0) {
       let match: DangerousCommandMatch | undefined;
@@ -466,7 +496,7 @@ export function checkDangerousCommand({
           // matchers match on words, not redirect targets.
           if (!cmd) return false;
           const words = (cmd.words ?? []).map(wordToString);
-          const result = matchBuiltinDangerous(words, scratchScope);
+          const result = matchBuiltinDangerous(words, scoped);
           if (result) {
             match = result;
             return true;

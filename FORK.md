@@ -23,11 +23,14 @@ Fork behavior change: a recursive force delete whose every target sits inside an
 agent scratch root (`permissionGate.scratchDelete.roots`, default `/tmp`) is not
 flagged at all, because that is the agent's own working data. The exemption is
 structural — `src/core/commands/scratch.ts` — and is refused for a target that
-is relative, a wildcard or variable, the whole scratch root, or a path through a
-symlink, and for any command that had to be matched as text. Upstream flags
-every `rm -rf`. When merging upstream, keep `scratchScope` threaded from
-`createPermissionGateRule` into `checkDangerousCommand` and the exemption inside
-the built-in matcher loop only.
+is a wildcard or variable, the whole scratch root, a path through a symlink, or
+relative and unplaceable (no working directory, or a command that moves it with
+`cd`/`pushd`/`popd`), and for any command that had to be matched as text.
+Relative roots and relative targets are placed against the tool call's working
+directory. Upstream flags every `rm -rf`, knows nothing of the working
+directory, and has no `roots` in the settings UI. When merging upstream, keep
+`scratchScope` threaded from `createPermissionGateRule` into
+`checkDangerousCommand` and the exemption inside the built-in matcher loop only.
 
 Fork behavior change: a permission-gate grant covers a **class** of flagged
 command, not the command string. Upstream answers "allow for session" by storing

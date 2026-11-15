@@ -531,9 +531,11 @@ describe("permissionGate.scratchDelete", () => {
         },
       },
     });
+    // A relative root survives: it names a directory inside the working
+    // directory and is placed there when a command is checked.
     expect(config.permissionGate.scratchDelete).toEqual({
       enabled: false,
-      roots: ["/tmp", "/var/tmp"],
+      roots: ["/tmp", "/var/tmp", "tmp"],
     });
   });
 });

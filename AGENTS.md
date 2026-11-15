@@ -26,7 +26,7 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   auto-deny match. `saveCommandGrant()` merges into the target scope's own raw
   config because `ConfigLoader.save()` replaces a scope wholesale, which would
   otherwise drop everything else that scope held.
-- A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses relative targets, wildcards and variables, the scratch root itself, and paths through a symlink. Keep `scratchScope` threaded from `createPermissionGateRule` into `checkDangerousCommand`.
+- A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses wildcard and variable targets, the scratch root itself, paths through a symlink, and a relative target it cannot place: no working directory, or a command that moves it with `cd`/`pushd`/`popd`. Keep `scratchScope` threaded from `createPermissionGateRule` into `checkDangerousCommand`, with `cwd` taken from the tool call context and dropped whenever the parsed command moves the working directory.
 
 ## Documentation triggers
 

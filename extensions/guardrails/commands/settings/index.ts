@@ -436,6 +436,30 @@ export function registerGuardrailsSettings(
         };
       }
 
+      function scratchRootsSubmenu(
+        _val: string,
+        submenuDone: (v?: string) => void,
+      ) {
+        const scoped = scopedConfig.permissionGate?.scratchDelete?.roots;
+        let latest = [
+          ...(scoped ?? resolved.permissionGate.scratchDelete.roots),
+        ];
+        return new ArrayEditor({
+          label: "Scratch roots",
+          items: latest,
+          theme: settingsTheme,
+          onSave: (items) => {
+            latest = items.map((item) => item.trim()).filter(Boolean);
+            applyDraft("permissionGate.scratchDelete", {
+              ...scopedConfig.permissionGate?.scratchDelete,
+              roots: latest,
+            });
+          },
+          onDone: () =>
+            submenuDone(latest.length > 0 ? `${latest.length} items` : "none"),
+        });
+      }
+
       function commandClassListSubmenu(
         _val: string,
         submenuDone: (v?: string) => void,
@@ -717,6 +741,14 @@ export function registerGuardrailsSettings(
                     ? "on"
                     : "off",
               values: ["on", "off"],
+            },
+            {
+              id: "permissionGate.scratchDelete.roots",
+              label: "Scratch roots",
+              description:
+                "Directories whose recursive deletes are the agent's own working data, one per line. Absolute, or relative to the working directory: '.' makes the whole workspace scratch, 'build' its build directory",
+              currentValue: count("permissionGate.scratchDelete.roots"),
+              submenu: scratchRootsSubmenu,
             },
             {
               id: "permissionGate.patterns",

@@ -15,17 +15,20 @@ export type PermissionGateRuleOptions = {
   useBuiltinMatchers: boolean;
   /** Recursive deletes confined to these roots are not flagged. */
   scratchDelete?: { enabled?: boolean; roots?: string[] };
+  /** Working directory relative scratch targets resolve against. */
+  cwd?: string;
 };
 
 export function createPermissionGateRule({
   patterns,
   useBuiltinMatchers,
   scratchDelete,
+  cwd,
 }: PermissionGateRuleOptions): Rule<PermissionGateMeta> {
   const compiledPatterns = compileCommandPatterns(patterns);
   const scratchScope: ScratchDeleteScope | undefined =
     scratchDelete && scratchDelete.enabled !== false
-      ? { roots: scratchDelete.roots ?? [] }
+      ? { roots: scratchDelete.roots ?? [], cwd }
       : undefined;
 
   return {

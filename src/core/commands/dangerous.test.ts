@@ -667,4 +667,47 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
       "recursive force delete",
     );
   });
+
+  describe("relative targets", () => {
+    function checkIn(command: string, cwd: string) {
+      return checkDangerousCommand({
+        command,
+        patterns: [],
+        useBuiltinMatchers: true,
+        fallbackPatterns: [],
+        scratchScope: { roots: ["/tmp"], cwd },
+      });
+    }
+
+    it("does not flag a relative delete inside a scratch working directory", () => {
+      expect(checkIn("rm -rf build", "/tmp/work")).toBeUndefined();
+      expect(checkIn("rm -rf build/out obj", "/tmp/work")).toBeUndefined();
+    });
+
+    it("still flags a relative delete the working directory puts elsewhere", () => {
+      expect(checkIn("rm -rf build", "/home/mike/project")?.description).toBe(
+        "recursive force delete",
+      );
+    });
+
+    it("refuses a relative target once the command moves the working directory", () => {
+      // The gate knows where the tool call started, not where a `cd` inside the
+      // command leaves it, so it cannot place the target.
+      for (const command of [
+        "cd /tmp/work && rm -rf build",
+        "cd /home/mike/project; rm -rf build",
+        "pushd /tmp/work && rm -rf build",
+      ]) {
+        expect(checkIn(command, "/workspace")?.description, command).toBe(
+          "recursive force delete",
+        );
+      }
+    });
+
+    it("still excuses an absolute target in a command that moves the working directory", () => {
+      expect(
+        checkIn("cd /home/mike/project && rm -rf /tmp/b1", "/workspace"),
+      ).toBeUndefined();
+    });
+  });
 });

@@ -9,12 +9,23 @@ import { lstatSync } from "node:fs";
  * can be rebuilt, and nothing the user wrote is in it. What is not ordinary is
  * a delete that reaches outside the scratch root — through a link, a wildcard,
  * a variable, or a path that climbs out — so those are refused exemption and
- * stay flagged.
+ * stay flagged. A target written relative to the working directory is placed
+ * there before that question is asked: `build` run from `/tmp/work` is
+ * `/tmp/work/build`, the same directory however it was spelled.
  */
 
 export interface ScratchDeleteScope {
-  /** Absolute directories whose contents count as the agent's working data. */
+  /**
+   * Directories whose contents count as the agent's working data. An absolute
+   * entry is a directory on its own; a relative entry names one inside `cwd`,
+   * so a project can declare its own build or scratch subtree.
+   */
   roots: readonly string[];
+  /**
+   * The directory the command runs in. Relative targets are placed against it.
+   * Without it a relative target cannot be placed and is refused.
+   */
+  cwd?: string;
 }
 
 export type ScratchDeleteVerdict =
@@ -43,17 +54,52 @@ function normalizeAbsolutePath(path: string): string | undefined {
   return `/${parts.join("/")}`;
 }
 
-/** A usable scratch root: absolute, not the filesystem root. */
+/**
+ * The scratch roots as written: absolute entries normalized, relative entries
+ * kept as written because they are placed against the working directory only
+ * when a command is checked.
+ */
 export function normalizeScratchRoots(roots: readonly string[]): string[] {
   const normalized: string[] = [];
   for (const root of roots) {
-    const path = normalizeAbsolutePath(
-      typeof root === "string" ? root.trim() : "",
-    );
-    if (!path || path === "/") continue;
-    if (!normalized.includes(path)) normalized.push(path);
+    const raw = typeof root === "string" ? root.trim() : "";
+    if (!raw) continue;
+    if (raw.startsWith("/")) {
+      const path = normalizeAbsolutePath(raw);
+      if (!path || path === "/") continue;
+      if (!normalized.includes(path)) normalized.push(path);
+      continue;
+    }
+    const relative = raw.replace(/\/+$/, "");
+    if (!relative) continue;
+    if (!normalized.includes(relative)) normalized.push(relative);
   }
   return normalized;
+}
+
+/** An absolute path to work with, or undefined for anything that is not one. */
+function absoluteOrUndefined(path: unknown): string | undefined {
+  return typeof path === "string" && path.startsWith("/")
+    ? normalizeAbsolutePath(path)
+    : undefined;
+}
+
+/** Roots as absolute directories, relative ones placed against `cwd`. */
+function resolveScratchRoots(
+  roots: readonly string[],
+  cwd: string | undefined,
+): string[] {
+  const resolved: string[] = [];
+  for (const root of normalizeScratchRoots(roots)) {
+    const path = root.startsWith("/")
+      ? root
+      : cwd
+        ? normalizeAbsolutePath(`${cwd}/${root}`)
+        : undefined;
+    if (!path || path === "/") continue;
+    if (!resolved.includes(path)) resolved.push(path);
+  }
+  return resolved;
 }
 
 /**
@@ -87,13 +133,15 @@ function linksOnTheWayDown(
 
 /**
  * Classify one command's delete targets. `words` is the parsed command, so
- * `rm -rf /tmp/b1` arrives as ["rm", "-rf", "/tmp/b1"].
+ * `rm -rf /tmp/b1` arrives as ["rm", "-rf", "/tmp/b1"]. A relative target is
+ * placed against `scope.cwd`, which is why the caller has to supply it.
  */
 export function classifyScratchDelete(
   words: readonly string[],
   scope: ScratchDeleteScope,
 ): ScratchDeleteVerdict {
-  const roots = normalizeScratchRoots(scope.roots);
+  const cwd = absoluteOrUndefined(scope.cwd);
+  const roots = resolveScratchRoots(scope.roots, cwd);
   if (roots.length === 0) {
     return { confined: false, reason: "no scratch root is configured" };
   }
@@ -121,12 +169,6 @@ export function classifyScratchDelete(
         reason: `${operand} is not a literal path`,
       };
     }
-    if (!operand.startsWith("/")) {
-      return {
-        confined: false,
-        reason: `${operand} is relative to a working directory outside the scratch root`,
-      };
-    }
     if (operand.endsWith("/")) {
       return {
         confined: false,
@@ -134,11 +176,15 @@ export function classifyScratchDelete(
       };
     }
 
-    const path = normalizeAbsolutePath(operand);
+    const path = operand.startsWith("/")
+      ? normalizeAbsolutePath(operand)
+      : cwd
+        ? normalizeAbsolutePath(`${cwd}/${operand}`)
+        : undefined;
     if (!path) {
       return {
         confined: false,
-        reason: `${operand} climbs out of the filesystem root`,
+        reason: `${operand} is relative to a working directory the gate cannot place it in`,
       };
     }
 

@@ -227,13 +227,18 @@ export interface GuardrailsConfig {
     /**
      * Recursive force delete confined to an agent scratch root. On by default:
      * deleting the agent's own scratch data is ordinary work. A delete that
-     * names a wildcard, a variable, a relative path, the whole scratch root, or
-     * a path through a symlink is still flagged.
+     * names a wildcard, a variable, the whole scratch root, or a path through a
+     * symlink is still flagged.
      */
     scratchDelete?: {
       /** Skip the prompt for confined scratch deletes. Default true. */
       enabled?: boolean;
-      /** Absolute scratch roots. Default ["/tmp"]. */
+      /**
+       * Scratch roots. Default ["/tmp"]. An absolute entry is a directory on its
+       * own; a relative entry names one inside the working directory the command
+       * runs in, so a project can declare its own working data — `.` covers the
+       * whole workspace, `build` only its build directory.
+       */
       roots?: string[];
     };
   };
