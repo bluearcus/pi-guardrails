@@ -1,4 +1,20 @@
 export type {
+  CommandClassKey,
+  CommandGrant,
+} from "./classes";
+export {
+  builtinClassKey,
+  commandClassKey,
+  commandGrantCovers,
+  commandGrantCoversAny,
+  describeCommandClass,
+  grantDirectoryFor,
+  grantTargetsFor,
+  normalizeGrantDirectory,
+  patternClassKey,
+  STRUCTURAL_PATTERN,
+} from "./classes";
+export type {
   CommandPattern,
   CompiledCommandPattern,
   DangerousCommandCheckOptions,
@@ -11,12 +27,13 @@ export {
   checkDangerousCommand,
   compileCommandPattern,
   compileCommandPatterns,
+  deleteTargetsFor,
   matchDangerousCommand,
-  STRUCTURAL_PATTERN,
 } from "./dangerous";
 export type { ScratchDeleteScope, ScratchDeleteVerdict } from "./scratch";
 export {
   classifyScratchDelete,
+  deleteOperands,
   normalizeScratchRoots,
   RECURSIVE_FORCE_DELETE,
 } from "./scratch";

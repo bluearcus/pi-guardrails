@@ -1,7 +1,16 @@
 import { type Program, parse } from "@aliou/sh";
 import { walkCommands, wordToString } from "../shell/ast";
 import {
+  type CommandGrant,
+  commandClassKey,
+  commandGrantCoversAny,
+  grantTargetsFor,
+  STRUCTURAL_PATTERN,
+} from "./classes";
+import {
+  absoluteOrUndefined,
   classifyScratchDelete,
+  deleteOperands,
   RECURSIVE_FORCE_DELETE,
   type ScratchDeleteScope,
 } from "./scratch";
@@ -31,14 +40,13 @@ export interface DangerousCommandMatch {
   description: string;
   pattern: string;
 }
+/** Grants plus the working directory they are checked against. */
+interface GrantScope {
+  grants: readonly CommandGrant[];
+  cwd: string | undefined;
+}
 
-/**
- * The `pattern` a built-in structural match reports, as opposed to the pattern
- * text of a configured pattern. A grant is taken for the rule that flagged the
- * command, so the two have to be told apart: see `commandClassKey()` in the
- * permission gate.
- */
-export const STRUCTURAL_PATTERN = "(structural)";
+export type { CommandGrant } from "./classes";
 
 export interface DangerousCommandCheckOptions {
   command: string;
@@ -51,6 +59,17 @@ export interface DangerousCommandCheckOptions {
    * that had to be matched as text is not verified well enough to excuse.
    */
   scratchScope?: ScratchDeleteScope;
+  /**
+   * Classes the user allowed for one directory. A flagged command a grant covers
+   * is not reported: the answer was already given, for that class in that place.
+   */
+  grants?: readonly CommandGrant[];
+  /**
+   * The directory the command runs in. Grant coverage places relative targets
+   * against it, and it is dropped for a command that moves it with
+   * `cd`/`pushd`/`popd`.
+   */
+  cwd?: string;
 }
 
 /**
@@ -416,6 +435,7 @@ export function compileCommandPatterns(
 function matchBuiltinDangerous(
   words: string[],
   scratchScope?: ScratchDeleteScope,
+  grantScope?: GrantScope,
 ): DangerousCommandMatch | undefined {
   if (words.length === 0) return undefined;
   for (const matcher of BUILTIN_MATCHERS) {
@@ -429,7 +449,21 @@ function matchBuiltinDangerous(
       // Deleting the agent's own scratch data is ordinary work, not a risk.
       continue;
     }
-    return { description, pattern: STRUCTURAL_PATTERN };
+    const match = { description, pattern: STRUCTURAL_PATTERN };
+    if (grantScope) {
+      const classKey = commandClassKey(match);
+      if (
+        commandGrantCoversAny(
+          grantScope.grants,
+          classKey,
+          grantTargetsFor(classKey, words),
+          grantScope.cwd,
+        )
+      ) {
+        continue;
+      }
+    }
+    return match;
   }
   return undefined;
 }
@@ -461,6 +495,8 @@ export function checkDangerousCommand({
   useBuiltinMatchers,
   fallbackPatterns,
   scratchScope,
+  grants,
+  cwd,
 }: DangerousCommandCheckOptions): DangerousCommandMatch | undefined {
   // Recovery returns a best-effort partial AST next to the errors that
   // triggered it. Structural matching on a recovered AST only adds detections;
@@ -477,14 +513,20 @@ export function checkDangerousCommand({
     ast = undefined;
   }
 
-  // Relative scratch targets are only decidable with a known working directory,
-  // and a command that moves that directory first makes the gate's own knowledge
-  // of it wrong. Absolute targets are unaffected either way.
+  // Relative targets — the scratch exemption's and a grant's alike — are only
+  // decidable with a known working directory, and a command that moves that
+  // directory first makes the gate's own knowledge of it wrong. Absolute
+  // targets are unaffected either way, and a command that cannot be parsed into
+  // structure is placed nowhere at all.
+  const placeable = ast !== undefined && !movesWorkingDirectory(ast);
+  const workingDirectory = placeable ? absoluteOrUndefined(cwd) : undefined;
   const scoped = scratchScope
-    ? ast && !movesWorkingDirectory(ast)
+    ? placeable
       ? scratchScope
       : { roots: scratchScope.roots }
     : undefined;
+  const grantScope: GrantScope | undefined =
+    grants && placeable ? { grants, cwd: workingDirectory } : undefined;
 
   if (useBuiltinMatchers) {
     if (ast && ast.body.length > 0) {
@@ -496,7 +538,7 @@ export function checkDangerousCommand({
           // matchers match on words, not redirect targets.
           if (!cmd) return false;
           const words = (cmd.words ?? []).map(wordToString);
-          const result = matchBuiltinDangerous(words, scoped);
+          const result = matchBuiltinDangerous(words, scoped, grantScope);
           if (result) {
             match = result;
             return true;
@@ -531,12 +573,56 @@ export function checkDangerousCommand({
     }
 
     if (compiled.test(command)) {
-      return {
+      const match = {
         description: source.description ?? source.pattern,
         pattern: source.pattern,
       };
+      if (
+        grantScope &&
+        commandGrantCoversAny(
+          grantScope.grants,
+          commandClassKey(match),
+          [],
+          grantScope.cwd,
+        )
+      ) {
+        continue;
+      }
+      return match;
     }
   }
 
   return undefined;
+}
+
+/**
+ * The targets of the recursive force deletes in a command, as written. Used to
+ * propose which directory a grant should name: the gate already parsed the
+ * command to flag it, and this is the same walk over the same AST.
+ */
+export function deleteTargetsFor(command: string): string[] {
+  let ast: Program | undefined;
+  try {
+    ast = parse(command, { recoverErrors: true }).ast;
+  } catch {
+    return [];
+  }
+  if (!ast) return [];
+
+  const targets: string[] = [];
+  walkCommands(
+    ast,
+    (cmd) => {
+      if (!cmd) return false;
+      const words = (cmd.words ?? []).map(wordToString);
+      if (
+        matchBuiltinDangerous(words)?.description === RECURSIVE_FORCE_DELETE
+      ) {
+        targets.push(...deleteOperands(words));
+      }
+      return false;
+    },
+    { includeSubstitutions: true },
+  );
+  return targets;
 }

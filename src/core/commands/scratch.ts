@@ -33,13 +33,13 @@ export type ScratchDeleteVerdict =
   | { confined: false; reason: string };
 
 /** Anything the shell expands, or a path that is not written out literally. */
-const NOT_LITERAL = /[$*?[\]{}~`\\]/;
+export const NOT_LITERAL = /[$*?[\]{}~`\\]/;
 
 /** The description the rm matcher produces. */
 export const RECURSIVE_FORCE_DELETE = "recursive force delete";
 
 /** Lexical absolute path resolution: `.` and `..` resolved without touching disk. */
-function normalizeAbsolutePath(path: string): string | undefined {
+export function normalizeAbsolutePath(path: string): string | undefined {
   if (!path.startsWith("/")) return undefined;
   const parts: string[] = [];
   for (const segment of path.split("/")) {
@@ -78,7 +78,7 @@ export function normalizeScratchRoots(roots: readonly string[]): string[] {
 }
 
 /** An absolute path to work with, or undefined for anything that is not one. */
-function absoluteOrUndefined(path: unknown): string | undefined {
+export function absoluteOrUndefined(path: unknown): string | undefined {
   return typeof path === "string" && path.startsWith("/")
     ? normalizeAbsolutePath(path)
     : undefined;
@@ -109,7 +109,7 @@ function resolveScratchRoots(
  * not a problem: `rm` unlinks a symlinked operand instead of emptying what it
  * points at.
  */
-function linksOnTheWayDown(
+export function linksOnTheWayDown(
   candidate: string,
   root: string,
 ): { link?: string; unreadable?: string } {
@@ -132,6 +132,25 @@ function linksOnTheWayDown(
 }
 
 /**
+ * The target operands of a command, its arguments with the flags removed:
+ * `rm -rf /tmp/b1 -- force` gives ["/tmp/b1", "force"].
+ */
+export function deleteOperands(words: readonly string[]): string[] {
+  const operands: string[] = [];
+  let afterSeparator = false;
+  for (const word of words.slice(1)) {
+    if (!word) continue;
+    if (!afterSeparator && word === "--") {
+      afterSeparator = true;
+      continue;
+    }
+    if (!afterSeparator && word.startsWith("-")) continue;
+    operands.push(word);
+  }
+  return operands;
+}
+
+/**
  * Classify one command's delete targets. `words` is the parsed command, so
  * `rm -rf /tmp/b1` arrives as ["rm", "-rf", "/tmp/b1"]. A relative target is
  * placed against `scope.cwd`, which is why the caller has to supply it.
@@ -146,17 +165,7 @@ export function classifyScratchDelete(
     return { confined: false, reason: "no scratch root is configured" };
   }
 
-  const operands: string[] = [];
-  let afterSeparator = false;
-  for (const word of words.slice(1)) {
-    if (!word) continue;
-    if (!afterSeparator && word === "--") {
-      afterSeparator = true;
-      continue;
-    }
-    if (!afterSeparator && word.startsWith("-")) continue;
-    operands.push(word);
-  }
+  const operands = deleteOperands(words);
 
   if (operands.length === 0) {
     return { confined: false, reason: "the delete names no target" };

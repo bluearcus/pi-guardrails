@@ -5,6 +5,13 @@ import {
   compileCommandPatterns,
   matchDangerousCommand,
 } from "./dangerous";
+import {
+  builtinClassKey,
+  type CommandGrant,
+  deleteTargetsFor,
+  patternClassKey,
+} from "./index";
+import { RECURSIVE_FORCE_DELETE } from "./scratch";
 
 /**
  * Helper to run all matchers against a command string.
@@ -708,5 +715,124 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
         checkIn("cd /home/mike/project && rm -rf /tmp/b1", "/workspace"),
       ).toBeUndefined();
     });
+  });
+});
+
+describe("checkDangerousCommand with directory grants", () => {
+  const project = "/home/mike/project";
+  const deleteClass = builtinClassKey(RECURSIVE_FORCE_DELETE);
+
+  function check(
+    command: string,
+    grants: readonly CommandGrant[] = [
+      { class: deleteClass, directory: project },
+    ],
+    cwd: string | undefined = project,
+  ) {
+    return checkDangerousCommand({
+      command,
+      patterns: [],
+      useBuiltinMatchers: true,
+      fallbackPatterns: [],
+      grants,
+      cwd,
+    });
+  }
+
+  it("does not flag a class granted for the directory it happens in", () => {
+    expect(check("rm -rf .layout")?.description).toBeUndefined();
+    expect(check("rm -rf build/out obj")?.description).toBeUndefined();
+    expect(check(`rm -rf ${project}/build`)?.description).toBeUndefined();
+  });
+
+  it("flags the same class in another directory", () => {
+    expect(check("rm -rf /home/mike/Sync")?.description).toBe(
+      "recursive force delete",
+    );
+    expect(check("rm -rf build", undefined, "/tmp/other")?.description).toBe(
+      "recursive force delete",
+    );
+  });
+
+  it("flags a delete of the granted directory itself", () => {
+    expect(
+      check(
+        "rm -rf /home/mike/project",
+        [{ class: deleteClass, directory: project }],
+        "/home/mike",
+      )?.description,
+    ).toBe("recursive force delete");
+  });
+
+  it("covers a target written as a variable only inside the granted directory", () => {
+    expect(check("rm -rf $BDIR")?.description).toBeUndefined();
+    expect(check("rm -rf $BDIR", undefined, "/tmp")?.description).toBe(
+      "recursive force delete",
+    );
+  });
+
+  it("flags a command that moves the working directory first", () => {
+    expect(check("cd /tmp/other && rm -rf build")?.description).toBe(
+      "recursive force delete",
+    );
+  });
+
+  it("flags a target outside the grant alongside one inside it", () => {
+    expect(
+      check(`rm -rf ${project}/build && rm -rf /home/mike/Sync`)?.description,
+    ).toBe("recursive force delete");
+  });
+
+  it("does not cover a different class", () => {
+    expect(check("sudo rm -rf .layout")?.description).toBe("superuser command");
+  });
+
+  it("covers a configured pattern where the command runs", () => {
+    const pattern = { pattern: "terraform destroy", description: "terraform" };
+    const result = checkDangerousCommand({
+      command: "terraform destroy",
+      patterns: compileCommandPatterns([pattern]),
+      useBuiltinMatchers: false,
+      fallbackPatterns: [pattern],
+      grants: [
+        { class: patternClassKey("terraform destroy"), directory: project },
+      ],
+      cwd: `${project}/infra`,
+    });
+    expect(result).toBeUndefined();
+
+    expect(
+      checkDangerousCommand({
+        command: "terraform destroy",
+        patterns: compileCommandPatterns([pattern]),
+        useBuiltinMatchers: false,
+        fallbackPatterns: [pattern],
+        grants: [
+          { class: patternClassKey("terraform destroy"), directory: project },
+        ],
+        cwd: "/tmp",
+      })?.pattern,
+    ).toBe("terraform destroy");
+  });
+
+  it("excuses the granted part of a compound command", () => {
+    expect(
+      check(`mkdir -p ${project}/build && rm -rf ${project}/build/old`),
+    ).toBeUndefined();
+  });
+});
+
+describe("deleteTargetsFor", () => {
+  it("reads the targets of the deletes in a command", () => {
+    expect(deleteTargetsFor("rm -rf /tmp/build")).toEqual(["/tmp/build"]);
+    expect(deleteTargetsFor("rm -rf .layout && mkdir .layout")).toEqual([
+      ".layout",
+    ]);
+    expect(deleteTargetsFor("rm -rf $BDIR")).toEqual(["$BDIR"]);
+    expect(deleteTargetsFor("mkdir -p /tmp/build")).toEqual([]);
+    expect(deleteTargetsFor("rm -rf /tmp/a && rm -rf /tmp/b")).toEqual([
+      "/tmp/a",
+      "/tmp/b",
+    ]);
   });
 });
