@@ -7,9 +7,9 @@ import {
   commandClassKey,
   commandGrantCovers,
   commandGrantCoversAny,
+  commonAncestorOf,
   describeCommandClass,
   grantDirectoryFor,
-  grantOfferFor,
   grantTargetsFor,
   literalTargetDirectory,
   normalizeGrantDirectory,
@@ -290,47 +290,26 @@ describe("grantDirectoryFor", () => {
   });
 });
 
-describe("grantOfferFor", () => {
-  it("offers the working directory and what is under it", () => {
-    expect(grantOfferFor(["build"], "/home/mike/project")).toBe(
-      "/home/mike/project",
+describe("commonAncestorOf", () => {
+  it("names the deepest directory containing all of them", () => {
+    expect(commonAncestorOf(["/home/mike/project/build"])).toBe(
+      "/home/mike/project/build",
     );
     expect(
-      grantOfferFor(["/home/mike/project/sub/build"], "/home/mike/project"),
-    ).toBe("/home/mike/project/sub");
-    expect(grantOfferFor([], "/home/mike/project")).toBe("/home/mike/project");
+      commonAncestorOf([
+        "/home/mike/project/build",
+        "/home/mike/project/build/out",
+      ]),
+    ).toBe("/home/mike/project/build");
+    expect(
+      commonAncestorOf(["/home/mike/project/a", "/home/mike/project/b"]),
+    ).toBe("/home/mike/project");
   });
 
-  it("offers a scratch root for a delete inside it", () => {
-    expect(grantOfferFor(["/tmp/build"], "/home/mike/project", ["/tmp"])).toBe(
-      "/tmp",
-    );
-    expect(
-      grantOfferFor(["/var/tmp/build"], "/home/mike/project", ["/var/tmp"]),
-    ).toBe("/var/tmp");
-    expect(
-      grantOfferFor(["scratch/x"], "/home/mike/project", ["./scratch"]),
-    ).toBe("/home/mike/project/scratch");
-  });
-
-  it("offers nothing over the tree around the working directory", () => {
-    // A grant there would cover everything next to what is being deleted.
-    expect(grantOfferFor([".."], "/home/mike/project/build")).toBeUndefined();
-    expect(
-      grantOfferFor(["../outside"], "/home/mike/project/build"),
-    ).toBeUndefined();
-    expect(
-      grantOfferFor(["/home/mike/Sync"], "/home/mike/Sync/Projects"),
-    ).toBeUndefined();
-  });
-
-  it("keeps a wildcard offer where its literal part sits", () => {
-    expect(grantOfferFor(["/tmp/*"], "/home/mike/project", ["/tmp"])).toBe(
-      "/tmp",
-    );
-    expect(
-      grantOfferFor(["/home/mike/other/*"], "/home/mike/project"),
-    ).toBeUndefined();
+  it("names nothing when they only share the filesystem root", () => {
+    expect(commonAncestorOf(["/tmp/a", "/home/mike/project"])).toBeUndefined();
+    expect(commonAncestorOf(["/tmp", "/home"])).toBeUndefined();
+    expect(commonAncestorOf([])).toBeUndefined();
   });
 });
 

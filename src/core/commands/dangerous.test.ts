@@ -8,7 +8,7 @@ import {
 import {
   builtinClassKey,
   type CommandGrant,
-  deleteTargetsFor,
+  grantOfferForCommand,
   patternClassKey,
 } from "./index";
 import { RECURSIVE_FORCE_DELETE } from "./scratch";
@@ -637,7 +637,7 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
       patterns: [],
       useBuiltinMatchers: true,
       fallbackPatterns: [],
-      scratchScope: scoped ? scope : undefined,
+      scratchRoots: scoped ? scope.roots : undefined,
     });
   }
 
@@ -681,7 +681,8 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
         patterns: [],
         useBuiltinMatchers: true,
         fallbackPatterns: [],
-        scratchScope: { roots: ["/tmp"], cwd },
+        scratchRoots: ["/tmp"],
+        cwd,
       });
     }
 
@@ -696,13 +697,31 @@ describe("checkDangerousCommand with a scratch delete scope", () => {
       );
     });
 
-    it("refuses a relative target once the command moves the working directory", () => {
-      // The gate knows where the tool call started, not where a `cd` inside the
-      // command leaves it, so it cannot place the target.
+    it("confines a relative target to the directory a literal cd moved to", () => {
+      // The command says where it works, so `build` is /tmp/work/build.
+      expect(
+        checkIn("cd /tmp/work && rm -rf build", "/workspace"),
+      ).toBeUndefined();
+      expect(
+        checkIn("pushd /tmp/work && rm -rf build", "/workspace"),
+      ).toBeUndefined();
+      expect(
+        checkIn("cd /tmp && cd work && rm -rf build", "/workspace"),
+      ).toBeUndefined();
+      expect(
+        checkIn("(cd /tmp/work && rm -rf build) && echo done", "/workspace"),
+      ).toBeUndefined();
+    });
+
+    it("refuses a relative target the command leaves unplaced", () => {
       for (const command of [
-        "cd /tmp/work && rm -rf build",
+        // The moved directory is not a scratch root.
         "cd /home/mike/project; rm -rf build",
-        "pushd /tmp/work && rm -rf build",
+        // The directory is not one the gate can name.
+        "cd $WORK && rm -rf build",
+        "cd - && rm -rf build",
+        // A pipeline element's cd says nothing about the rest of the program.
+        "cd /tmp/work | tee log && rm -rf build",
       ]) {
         expect(checkIn(command, "/workspace")?.description, command).toBe(
           "recursive force delete",
@@ -771,10 +790,50 @@ describe("checkDangerousCommand with directory grants", () => {
     );
   });
 
-  it("flags a command that moves the working directory first", () => {
-    expect(check("cd /tmp/other && rm -rf build")?.description).toBe(
-      "recursive force delete",
-    );
+  it("covers the delete inside a compound command by the directory its own cd moved to", () => {
+    const build = `${project}/build`;
+    expect(
+      check(`cd ${build} && make && rm -rf $BDIR`, undefined, "/workspace"),
+    ).toBeUndefined();
+    expect(
+      check("cd build && make clean && rm -rf .layout", undefined, project),
+    ).toBeUndefined();
+    expect(check("cd build && rm -rf out", undefined, project)).toBeUndefined();
+  });
+
+  it("flags a compound command whose cd leaves the granted directory", () => {
+    for (const command of [
+      "cd /tmp/other && rm -rf build",
+      "cd $WORK && rm -rf build",
+      "cd /tmp/other && cd build && rm -rf out",
+      "cd build && rm -rf ..",
+    ]) {
+      expect(check(command, undefined, project)?.description, command).toBe(
+        "recursive force delete",
+      );
+    }
+  });
+
+  it("excuses a compound command when every delete in it is granted where it runs", () => {
+    const both: CommandGrant[] = [
+      { class: deleteClass, directory: project },
+      { class: deleteClass, directory: "/tmp/other" },
+    ];
+    expect(
+      check(
+        `rm -rf ${project}/build && cd /tmp/other && rm -rf old`,
+        both,
+        project,
+      ),
+    ).toBeUndefined();
+    // One grant is not authority over the other directory.
+    expect(
+      check(
+        `rm -rf ${project}/build && cd /tmp/other && rm -rf old`,
+        undefined,
+        project,
+      )?.description,
+    ).toBe("recursive force delete");
   });
 
   it("flags a target outside the grant alongside one inside it", () => {
@@ -822,17 +881,100 @@ describe("checkDangerousCommand with directory grants", () => {
   });
 });
 
-describe("deleteTargetsFor", () => {
-  it("reads the targets of the deletes in a command", () => {
-    expect(deleteTargetsFor("rm -rf /tmp/build")).toEqual(["/tmp/build"]);
-    expect(deleteTargetsFor("rm -rf .layout && mkdir .layout")).toEqual([
-      ".layout",
-    ]);
-    expect(deleteTargetsFor("rm -rf $BDIR")).toEqual(["$BDIR"]);
-    expect(deleteTargetsFor("mkdir -p /tmp/build")).toEqual([]);
-    expect(deleteTargetsFor("rm -rf /tmp/a && rm -rf /tmp/b")).toEqual([
-      "/tmp/a",
-      "/tmp/b",
-    ]);
+describe("grantOfferForCommand", () => {
+  const project = "/home/mike/project";
+  const deleteClass = builtinClassKey(RECURSIVE_FORCE_DELETE);
+
+  function offer(
+    command: string,
+    options: {
+      cwd?: string;
+      home?: string;
+      roots?: readonly string[];
+      classKey?: string;
+    } = {},
+  ) {
+    return grantOfferForCommand({
+      command,
+      classKey: options.classKey ?? deleteClass,
+      cwd: options.cwd ?? project,
+      home: options.home,
+      scratchRoots: options.roots ?? ["/tmp"],
+    });
+  }
+
+  it("names the directory a compound command actually works in", () => {
+    expect(
+      offer("cd /work/follow9/build && make && rm -rf $BDIR", {
+        cwd: "/workspace",
+      }),
+    ).toBe("/work/follow9/build");
+    expect(offer("cd build && rm -rf out")).toBe(`${project}/build`);
+    expect(offer("rm -rf build/out/deep")).toBe(`${project}/build/out`);
+    expect(offer("rm -rf $BDIR")).toBe(project);
+  });
+
+  it("offers nothing for a delete that climbs out of the directory it runs in", () => {
+    for (const command of [
+      "cd build && rm -rf ..",
+      "rm -rf ..",
+      "rm -rf ../outside",
+      "rm -rf /home/mike/Sync",
+    ]) {
+      expect(offer(command), command).toBeUndefined();
+    }
+  });
+
+  it("offers a scratch root for a delete outside the working directory", () => {
+    expect(offer("rm -rf /tmp/build")).toBe("/tmp");
+    expect(offer("cd /home/mike/project && rm -rf /tmp/x")).toBe("/tmp");
+    expect(offer("rm -rf ./scratch/build", { roots: ["./scratch"] })).toBe(
+      `${project}/scratch`,
+    );
+  });
+
+  it("offers nothing when the deletes span directories no single grant covers", () => {
+    expect(offer("rm -rf /tmp/a /home/mike/project/b")).toBeUndefined();
+    expect(
+      offer("cd /tmp/a && rm -rf x && cd /home/mike/project && rm -rf y"),
+    ).toBeUndefined();
+  });
+
+  it("offers the directory a wildcard deletes inside", () => {
+    expect(offer("rm -rf /tmp/*")).toBe("/tmp");
+    expect(offer("rm -rf build/*")).toBe(`${project}/build`);
+    expect(offer("rm -rf /home/mike/other/*")).toBeUndefined();
+  });
+
+  it("places a home-relative cd when it is told the home directory", () => {
+    expect(
+      offer("cd ~/work/build && rm -rf out", {
+        cwd: "/workspace",
+        home: "/home/mike",
+      }),
+    ).toBe("/home/mike/work/build");
+    expect(
+      offer("cd ~/work/build && rm -rf out", { cwd: "/workspace" }),
+    ).toBeUndefined();
+  });
+
+  it("offers where a class with no paths of its own runs", () => {
+    expect(
+      offer("cd /tmp/work && docker run --privileged x", {
+        classKey: "builtin:container with privileged mode",
+      }),
+    ).toBe("/tmp/work");
+    expect(offer("sudo make", { classKey: "builtin:superuser command" })).toBe(
+      project,
+    );
+    expect(
+      offer("cd $WORK && sudo make", { classKey: "builtin:superuser command" }),
+    ).toBeUndefined();
+  });
+
+  it("offers nothing for a command with no flagged delete in it", () => {
+    expect(offer("mkdir -p /tmp/build")).toBeUndefined();
+    // The delete here is matched as a privilege escalation, not as a delete.
+    expect(offer("sudo rm -rf /tmp/x")).toBeUndefined();
   });
 });

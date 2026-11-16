@@ -94,6 +94,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
         scratchDelete: config.permissionGate.scratchDelete,
         grants: config.permissionGate.grants,
         cwd: ctx.cwd,
+        home: process.env.HOME,
       }),
     ]);
     if (safety.kind === "safe") return;

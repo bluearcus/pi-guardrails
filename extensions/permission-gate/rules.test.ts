@@ -66,7 +66,7 @@ describe("createPermissionGateRule", () => {
     expect(result).toEqual({ kind: "pass" });
   });
 
-  it("flags a relative target a cd inside the command moves out of reach", async () => {
+  it("does not flag a relative target the command cd's into a scratch root", async () => {
     const rule = createPermissionGateRule({
       patterns: [],
       useBuiltinMatchers: true,
@@ -78,7 +78,27 @@ describe("createPermissionGateRule", () => {
       kind: "command",
       command: "cd /tmp/other && rm -rf build",
     });
-    expect(result.kind).toBe("match");
+    expect(result).toEqual({ kind: "pass" });
+  });
+
+  it("flags a relative target the command leaves outside every scratch root", async () => {
+    const rule = createPermissionGateRule({
+      patterns: [],
+      useBuiltinMatchers: true,
+      scratchDelete: { enabled: true, roots: ["/tmp"] },
+      cwd: "/tmp/work",
+    });
+
+    for (const command of [
+      // The directory it moved to is not a scratch root.
+      "cd /home/mike/project && rm -rf build",
+      // The directory is not one the gate can name.
+      "cd $WORK && rm -rf build",
+      "pushd && rm -rf build",
+    ]) {
+      const result = await rule.check({ kind: "command", command });
+      expect(result.kind, command).toBe("match");
+    }
   });
 
   it("flags scratch deletes when the exemption is disabled", async () => {

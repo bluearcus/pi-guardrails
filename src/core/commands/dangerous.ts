@@ -1,10 +1,16 @@
-import { type Program, parse } from "@aliou/sh";
+import { type Program, parse, type SimpleCommand } from "@aliou/sh";
 import { walkCommands, wordToString } from "../shell/ast";
 import {
+  builtinClassKey,
+  type CommandClassKey,
   type CommandGrant,
   commandClassKey,
   commandGrantCoversAny,
+  commonAncestorOf,
+  grantDirectoryFor,
   grantTargetsFor,
+  insideDirectory,
+  normalizeGrantDirectory,
   STRUCTURAL_PATTERN,
 } from "./classes";
 import {
@@ -12,8 +18,14 @@ import {
   classifyScratchDelete,
   deleteOperands,
   RECURSIVE_FORCE_DELETE,
+  resolveScratchRoots,
   type ScratchDeleteScope,
 } from "./scratch";
+import {
+  finalWorkingDirectory,
+  type WorkingDirectory,
+  workingDirectoriesFor,
+} from "./working-directory";
 
 /**
  * Dangerous command matchers for the permission gate.
@@ -40,13 +52,31 @@ export interface DangerousCommandMatch {
   description: string;
   pattern: string;
 }
-/** Grants plus the working directory they are checked against. */
-interface GrantScope {
-  grants: readonly CommandGrant[];
-  cwd: string | undefined;
+/**
+ * What a single command in a program may be excused by: the scratch roots, the
+ * user's grants, and where that command itself runs.
+ */
+interface NodeScope {
+  scratch?: ScratchDeleteScope;
+  grants?: readonly CommandGrant[];
+  cwd: WorkingDirectory;
 }
 
 export type { CommandGrant } from "./classes";
+
+/** What a grant offer is being worked out for. */
+export interface GrantOfferRequest {
+  /** The command the gate flagged. */
+  command: string;
+  /** The class key of the match, as {@link commandClassKey} reports it. */
+  classKey: CommandClassKey;
+  /** The directory the call started in. */
+  cwd?: string;
+  /** The user's home directory, for placing a `cd ~/work`. */
+  home?: string;
+  /** Configured scratch roots; relative ones are placed per command. */
+  scratchRoots?: readonly string[];
+}
 
 export interface DangerousCommandCheckOptions {
   command: string;
@@ -54,22 +84,30 @@ export interface DangerousCommandCheckOptions {
   useBuiltinMatchers: boolean;
   fallbackPatterns: readonly CommandPattern[];
   /**
-   * When set, a recursive force delete whose every target is inside a scratch
-   * root is not flagged. Only the structural matchers can grant this: a command
-   * that had to be matched as text is not verified well enough to excuse.
+   * Directories whose contents count as the agent's working data. A recursive
+   * force delete with every target inside one of them is not flagged. Only the
+   * structural matchers can grant this: a command that had to be matched as text
+   * is not verified well enough to excuse. A relative root names a directory
+   * inside the directory the delete itself runs in.
    */
-  scratchScope?: ScratchDeleteScope;
+  scratchRoots?: readonly string[];
   /**
    * Classes the user allowed for one directory. A flagged command a grant covers
    * is not reported: the answer was already given, for that class in that place.
    */
   grants?: readonly CommandGrant[];
   /**
-   * The directory the command runs in. Grant coverage places relative targets
-   * against it, and it is dropped for a command that moves it with
-   * `cd`/`pushd`/`popd`.
+   * The directory the call started in. It is the starting point for the
+   * directories inside the command, not the directory every command in it runs
+   * in: a literal `cd` moves it, and a `cd` whose target the shell fills in loses
+   * it for everything after it.
    */
   cwd?: string;
+  /**
+   * The user's home directory, so a literal `cd ~/work` can be placed. Without
+   * it a home-relative target is unknown.
+   */
+  home?: string;
 }
 
 /**
@@ -434,8 +472,7 @@ export function compileCommandPatterns(
 
 function matchBuiltinDangerous(
   words: string[],
-  scratchScope?: ScratchDeleteScope,
-  grantScope?: GrantScope,
+  scope?: NodeScope,
 ): DangerousCommandMatch | undefined {
   if (words.length === 0) return undefined;
   for (const matcher of BUILTIN_MATCHERS) {
@@ -443,21 +480,21 @@ function matchBuiltinDangerous(
     if (!description) continue;
     if (
       description === RECURSIVE_FORCE_DELETE &&
-      scratchScope &&
-      classifyScratchDelete(words, scratchScope).confined
+      scope?.scratch &&
+      classifyScratchDelete(words, scope.scratch).confined
     ) {
       // Deleting the agent's own scratch data is ordinary work, not a risk.
       continue;
     }
     const match = { description, pattern: STRUCTURAL_PATTERN };
-    if (grantScope) {
+    if (scope?.grants) {
       const classKey = commandClassKey(match);
       if (
         commandGrantCoversAny(
-          grantScope.grants,
+          scope.grants,
           classKey,
           grantTargetsFor(classKey, words),
-          grantScope.cwd,
+          scope.cwd,
         )
       ) {
         continue;
@@ -469,24 +506,30 @@ function matchBuiltinDangerous(
 }
 
 /**
- * Commands that move the working directory. Once one appears, a relative
- * operand no longer names the directory the gate thinks it names, so relative
- * targets stop being excusable.
+ * Where the commands of a parsed program run. The directory is followed through
+ * the program rather than discarded as soon as a `cd` appears, because a
+ * compound cleanup command names the directory it is working in and that is the
+ * directory a grant would have to name.
  */
-const MOVES_WORKING_DIRECTORY = new Set(["cd", "pushd", "popd"]);
+interface PlacedCommands {
+  /** The directory of each command node. Absent means not followed. */
+  directories: Map<SimpleCommand, WorkingDirectory>;
+  /** Where the program leaves the shell. */
+  final: WorkingDirectory;
+}
 
-function movesWorkingDirectory(ast: Program): boolean {
-  let moves = false;
-  walkCommands(ast, (cmd) => {
-    if (!cmd) return false;
-    const name = cmd.words?.[0] ? wordToString(cmd.words[0]) : "";
-    if (MOVES_WORKING_DIRECTORY.has(name)) {
-      moves = true;
-      return true;
-    }
-    return false;
-  });
-  return moves;
+function placeCommands(
+  ast: Program,
+  cwd: string | undefined,
+  home: string | undefined,
+): PlacedCommands {
+  const start = absoluteOrUndefined(cwd);
+  const homeDirectory = absoluteOrUndefined(home);
+  const options = { home: homeDirectory };
+  return {
+    directories: workingDirectoriesFor(ast, start, options),
+    final: finalWorkingDirectory(ast, start, options),
+  };
 }
 
 export function checkDangerousCommand({
@@ -494,9 +537,10 @@ export function checkDangerousCommand({
   patterns,
   useBuiltinMatchers,
   fallbackPatterns,
-  scratchScope,
+  scratchRoots,
   grants,
   cwd,
+  home,
 }: DangerousCommandCheckOptions): DangerousCommandMatch | undefined {
   // Recovery returns a best-effort partial AST next to the errors that
   // triggered it. Structural matching on a recovered AST only adds detections;
@@ -513,20 +557,11 @@ export function checkDangerousCommand({
     ast = undefined;
   }
 
-  // Relative targets — the scratch exemption's and a grant's alike — are only
-  // decidable with a known working directory, and a command that moves that
-  // directory first makes the gate's own knowledge of it wrong. Absolute
-  // targets are unaffected either way, and a command that cannot be parsed into
-  // structure is placed nowhere at all.
-  const placeable = ast !== undefined && !movesWorkingDirectory(ast);
-  const workingDirectory = placeable ? absoluteOrUndefined(cwd) : undefined;
-  const scoped = scratchScope
-    ? placeable
-      ? scratchScope
-      : { roots: scratchScope.roots }
-    : undefined;
-  const grantScope: GrantScope | undefined =
-    grants && placeable ? { grants, cwd: workingDirectory } : undefined;
+  // Each command in the program is placed in the directory the shell is in when
+  // it runs. Relative targets — the scratch exemption's and a grant's alike —
+  // are placed against that. Absolute targets do not depend on it, and a command
+  // the gate cannot place is excused by nothing.
+  const placed = ast ? placeCommands(ast, cwd, home) : undefined;
 
   if (useBuiltinMatchers) {
     if (ast && ast.body.length > 0) {
@@ -538,7 +573,14 @@ export function checkDangerousCommand({
           // matchers match on words, not redirect targets.
           if (!cmd) return false;
           const words = (cmd.words ?? []).map(wordToString);
-          const result = matchBuiltinDangerous(words, scoped, grantScope);
+          const at = placed?.directories.get(cmd);
+          const result = matchBuiltinDangerous(words, {
+            scratch: scratchRoots
+              ? { roots: scratchRoots, cwd: at }
+              : undefined,
+            grants,
+            cwd: at,
+          });
           if (result) {
             match = result;
             return true;
@@ -578,13 +620,9 @@ export function checkDangerousCommand({
         pattern: source.pattern,
       };
       if (
-        grantScope &&
-        commandGrantCoversAny(
-          grantScope.grants,
-          commandClassKey(match),
-          [],
-          grantScope.cwd,
-        )
+        grants &&
+        placed &&
+        commandGrantCoversAny(grants, commandClassKey(match), [], placed.final)
       ) {
         continue;
       }
@@ -596,49 +634,89 @@ export function checkDangerousCommand({
 }
 
 /**
- * Whether the gate can say where a command happens: it parsed into structure
- * and does not move the working directory itself. A command that `cd`s somewhere
- * else, or that never parsed, is not placeable — no grant can be taken for it,
- * because coverage is decided against the directory the call started in.
+ * The directory a prompt may offer a grant for, given the command the gate
+ * flagged and the class it flagged it as.
+ *
+ * The offer is about the flagged element, not about the whole command line: the
+ * targets of each recursive force delete in it are placed in the directory that
+ * delete itself runs in, which is what a `cd` at the front of a compound command
+ * establishes. A grant is standing authority over everything inside a directory,
+ * so a directory is only offered when the command was already working in it, or
+ * when it sits inside a scratch root the config declares. A delete that climbs
+ * out of the directory it runs in would need authority over its parent —
+ * everything next to the thing being deleted — so it is allowed once or not at
+ * all, never granted.
  */
-export function commandIsPlaceable(command: string): boolean {
+export function grantOfferForCommand({
+  command,
+  classKey,
+  cwd,
+  home,
+  scratchRoots = [],
+}: GrantOfferRequest): string | undefined {
   let ast: Program | undefined;
   try {
     ast = parse(command, { recoverErrors: true }).ast;
   } catch {
-    return false;
+    return undefined;
   }
-  return ast !== undefined && !movesWorkingDirectory(ast);
+  if (!ast) return undefined;
+
+  const placed = placeCommands(ast, cwd, home);
+  /** Each directory a grant would have to cover, and where that command runs. */
+  const required: { directory: string; cwd: WorkingDirectory }[] = [];
+
+  if (classKey === builtinClassKey(RECURSIVE_FORCE_DELETE)) {
+    let unnameable = false;
+    walkCommands(
+      ast,
+      (cmd) => {
+        if (!cmd) return false;
+        const words = (cmd.words ?? []).map(wordToString);
+        if (
+          matchBuiltinDangerous(words)?.description !== RECURSIVE_FORCE_DELETE
+        ) {
+          return false;
+        }
+        const at = placed.directories.get(cmd);
+        const directory = grantDirectoryFor(deleteOperands(words), at);
+        if (!directory) {
+          unnameable = true;
+          return true;
+        }
+        required.push({ directory, cwd: at });
+        return false;
+      },
+      { includeSubstitutions: true },
+    );
+    if (unnameable || required.length === 0) return undefined;
+  } else {
+    // A class with no paths of its own is granted where its command runs.
+    const directory = normalizeGrantDirectory(placed.final);
+    if (!directory) return undefined;
+    required.push({ directory, cwd: placed.final });
+  }
+
+  const candidate = commonAncestorOf(required.map((entry) => entry.directory));
+  if (!candidate) return undefined;
+
+  const offered = required.every((entry) =>
+    acceptableOffer(entry, candidate, scratchRoots),
+  );
+
+  return offered ? candidate : undefined;
 }
 
-/**
- * The targets of the recursive force deletes in a command, as written. Used to
- * propose which directory a grant should name: the gate already parsed the
- * command to flag it, and this is the same walk over the same AST.
- */
-export function deleteTargetsFor(command: string): string[] {
-  let ast: Program | undefined;
-  try {
-    ast = parse(command, { recoverErrors: true }).ast;
-  } catch {
-    return [];
-  }
-  if (!ast) return [];
-
-  const targets: string[] = [];
-  walkCommands(
-    ast,
-    (cmd) => {
-      if (!cmd) return false;
-      const words = (cmd.words ?? []).map(wordToString);
-      if (
-        matchBuiltinDangerous(words)?.description === RECURSIVE_FORCE_DELETE
-      ) {
-        targets.push(...deleteOperands(words));
-      }
-      return false;
-    },
-    { includeSubstitutions: true },
+function acceptableOffer(
+  entry: { directory: string; cwd: WorkingDirectory },
+  candidate: string,
+  scratchRoots: readonly string[],
+): boolean {
+  if (entry.cwd && insideDirectory(candidate, entry.cwd)) return true;
+  const scratch = resolveScratchRoots(scratchRoots, entry.cwd);
+  return scratch.some(
+    (root) =>
+      insideDirectory(candidate, root) &&
+      insideDirectory(entry.directory, root),
   );
-  return targets;
 }

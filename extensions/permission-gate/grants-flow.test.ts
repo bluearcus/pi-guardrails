@@ -167,6 +167,68 @@ describe("permission gate grants", () => {
     });
   });
 
+  it("grants the directory a compound command works in, not the one the call started in", async () => {
+    const build = `${PROJECT}/build`;
+    const { bash } = await startSession(true);
+
+    const prompted = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue("allow-session") },
+    });
+    const answered = await bash("cd build && make && rm -rf $BDIR", prompted);
+    expect(answered).toBeUndefined();
+    expect(prompted.ui.custom).toHaveBeenCalledTimes(1);
+
+    // The same shape of cleanup in the same directory, spelled differently.
+    for (const command of [
+      "cd build && make clean && rm -rf out",
+      "cd build && cd debug && rm -rf $BDIR",
+      `cd ${build} && rm -rf .layout`,
+    ]) {
+      const next = createCtx({ cwd: PROJECT });
+      const cleaned = await bash(command, next);
+      expect(cleaned, command).toBeUndefined();
+      expect(next.ui.custom, command).not.toHaveBeenCalled();
+    }
+
+    // The grant is over the directory the command worked in, so the one next to
+    // it still asks.
+    const neighbour = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue("deny") },
+    });
+    const other = await bash("cd other && rm -rf build", neighbour);
+    expect(other).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+    expect(neighbour.ui.custom).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers the compound command's own directory at the prompt", async () => {
+    const { bash } = await startSession(true);
+    const select = vi.fn().mockResolvedValue("Deny");
+    const ctx = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue(undefined), select },
+    });
+
+    const blocked = await bash("cd build && make && rm -rf $BDIR", ctx);
+    expect(blocked).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+
+    const [, options] = select.mock.calls[0] ?? [];
+    expect(options).toEqual([
+      "Allow once",
+      "Allow recursive force delete under ~/project/build this session",
+      "Always allow recursive force delete under ~/project/build",
+      "Deny",
+      "Decline and stop",
+    ]);
+  });
+
   it("writes an always grant to the project config as a class and directory", async () => {
     const { bash } = await startSession(true);
 

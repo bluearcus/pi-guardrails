@@ -89,6 +89,51 @@ describe("grantCandidateFor", () => {
     ).toBeUndefined();
   });
 
+  it("names the directory a compound command works in", () => {
+    // The flagged delete is inside the command; the `cd` in front of it says
+    // where it happens, so that is the directory the grant has to name.
+    expect(
+      grantCandidateFor(
+        DELETE_CLASS,
+        "cd /work/follow9/build && make && rm -rf $BDIR",
+        "/workspace",
+      ),
+    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9/build" });
+    expect(
+      grantCandidateFor(
+        DELETE_CLASS,
+        "cd /work/follow9/build && make clean && rm -rf out/deep",
+        "/workspace",
+      ),
+    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9/build/out" });
+    expect(
+      grantCandidateFor(
+        DELETE_CLASS,
+        "cd /work/follow9 && make && rm -rf build",
+        "/workspace",
+      ),
+    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9" });
+    expect(
+      grantCandidateFor(
+        DELETE_CLASS,
+        "cd build && rm -rf out",
+        "/home/mike/project",
+      ),
+    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/project/build" });
+  });
+
+  it("offers nothing when the compound command does not say where it works", () => {
+    for (const command of [
+      "cd $WORK && rm -rf build",
+      "cd $(mktemp -d) && rm -rf scratch",
+      "cd /work/build && rm -rf ..",
+    ]) {
+      expect(
+        grantCandidateFor(DELETE_CLASS, command, "/home/mike/project"),
+      ).toBeUndefined();
+    }
+  });
+
   it("covers a wildcard only where its literal part sits", () => {
     const grant = { class: DELETE_CLASS, directory: "/home/mike/project" };
     expect(

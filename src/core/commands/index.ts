@@ -7,10 +7,11 @@ export {
   commandClassKey,
   commandGrantCovers,
   commandGrantCoversAny,
+  commonAncestorOf,
   describeCommandClass,
   grantDirectoryFor,
-  grantOfferFor,
   grantTargetsFor,
+  insideDirectory,
   literalTargetDirectory,
   normalizeGrantDirectory,
   patternClassKey,
@@ -21,16 +22,16 @@ export type {
   CompiledCommandPattern,
   DangerousCommandCheckOptions,
   DangerousCommandMatch,
+  GrantOfferRequest,
   StructuralMatcher,
 } from "./dangerous";
 export {
   BUILTIN_KEYWORD_PATTERNS,
   BUILTIN_MATCHERS,
   checkDangerousCommand,
-  commandIsPlaceable,
   compileCommandPattern,
   compileCommandPatterns,
-  deleteTargetsFor,
+  grantOfferForCommand,
   matchDangerousCommand,
 } from "./dangerous";
 export type { ScratchDeleteScope, ScratchDeleteVerdict } from "./scratch";
@@ -40,3 +41,9 @@ export {
   normalizeScratchRoots,
   RECURSIVE_FORCE_DELETE,
 } from "./scratch";
+export type { WorkingDirectory } from "./working-directory";
+export {
+  finalWorkingDirectory,
+  MOVES_WORKING_DIRECTORY,
+  workingDirectoriesFor,
+} from "./working-directory";

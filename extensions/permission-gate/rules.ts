@@ -1,5 +1,5 @@
 import type { Action, Rule } from "../../src/core";
-import type { CommandGrant, ScratchDeleteScope } from "../../src/core/commands";
+import type { CommandGrant } from "../../src/core/commands";
 import { checkDangerousCommand } from "../../src/core/commands";
 import type { DangerousPattern, PatternConfig } from "../../src/shared/config";
 import { compileCommandPatterns } from "../../src/shared/matching";
@@ -20,8 +20,10 @@ export type PermissionGateRuleOptions = {
    * is not reported at all: that answer was already given.
    */
   grants?: readonly CommandGrant[];
-  /** Working directory relative targets and grants are placed against. */
+  /** Where the call started. Each command in it is placed from there. */
   cwd?: string;
+  /** The user's home directory, so a literal `cd ~/work` can be placed. */
+  home?: string;
 };
 
 export function createPermissionGateRule({
@@ -30,11 +32,12 @@ export function createPermissionGateRule({
   scratchDelete,
   grants,
   cwd,
+  home,
 }: PermissionGateRuleOptions): Rule<PermissionGateMeta> {
   const compiledPatterns = compileCommandPatterns(patterns);
-  const scratchScope: ScratchDeleteScope | undefined =
+  const scratchRoots =
     scratchDelete && scratchDelete.enabled !== false
-      ? { roots: scratchDelete.roots ?? [], cwd }
+      ? (scratchDelete.roots ?? [])
       : undefined;
 
   return {
@@ -47,9 +50,10 @@ export function createPermissionGateRule({
         patterns: compiledPatterns,
         useBuiltinMatchers,
         fallbackPatterns: patterns,
-        scratchScope,
+        scratchRoots,
         grants,
         cwd,
+        home,
       });
       if (!match) return { kind: "pass" };
 

@@ -4,7 +4,6 @@ import {
   NOT_LITERAL,
   normalizeAbsolutePath,
   RECURSIVE_FORCE_DELETE,
-  resolveScratchRoots,
 } from "./scratch";
 
 /**
@@ -107,9 +106,9 @@ export function grantTargetsFor(
 }
 
 /**
- * Whether one grant covers a flagged command. `targets` are the operand words
- * the command names, `cwd` the directory it runs in, already dropped by the
- * caller when the command moves it itself.
+ * Whether one grant covers a flagged command. `targets` are the operand words it
+ * names, `cwd` the directory that command runs in — for a compound command, the
+ * directory its own `cd` put the shell in, not the one the call started in.
  */
 export function commandGrantCovers(
   grant: CommandGrant,
@@ -194,6 +193,25 @@ export function commandGrantCoversAny(
 }
 
 /**
+ * The deepest directory containing every directory in `directories`, or undefined
+ * when they have no parent below the filesystem root.
+ */
+export function commonAncestorOf(
+  directories: readonly string[],
+): string | undefined {
+  if (directories.length === 0) return undefined;
+  let common = directories[0] as string;
+  for (const directory of directories.slice(1)) {
+    while (directory !== common && !directory.startsWith(`${common}/`)) {
+      const cut = common.lastIndexOf("/");
+      if (cut <= 0) return undefined;
+      common = common.slice(0, cut);
+    }
+  }
+  return common;
+}
+
+/**
  * The directory a grant should name for a flagged command: the deepest directory
  * that would actually cover it. Literal targets contribute the directory they
  * sit in; a pattern contributes the literal directory it deletes inside; a
@@ -226,41 +244,6 @@ export function grantDirectoryFor(
 
   if (required.length === 0) return normalizeGrantDirectory(cwd);
 
-  let common = required[0] as string;
-  for (const directory of required.slice(1)) {
-    while (directory !== common && !directory.startsWith(`${common}/`)) {
-      const cut = common.lastIndexOf("/");
-      if (cut <= 0) return undefined;
-      common = common.slice(0, cut);
-    }
-  }
-  return normalizeGrantDirectory(common);
-}
-
-/**
- * The directory a prompt may offer a grant for. A grant is standing authority
- * over everything inside a directory, so it is offered only over a place the
- * command was already working in: the working directory or one under it, or a
- * scratch root the config declares. A delete that climbs out of the working
- * directory would need a grant over its parent — which is authority over
- * everything next to the thing being deleted — so it is allowed once or not at
- * all, never granted. `roots` are the configured scratch directories, relative
- * ones placed against `cwd`.
- */
-export function grantOfferFor(
-  targets: readonly string[],
-  cwd: string | undefined,
-  roots: readonly string[] = [],
-): string | undefined {
-  const directory = grantDirectoryFor(targets, cwd);
-  if (!directory) return undefined;
-
-  const working = normalizeGrantDirectory(cwd);
-  if (working && insideDirectory(directory, working)) return directory;
-
-  const scratch = resolveScratchRoots(roots, cwd);
-  if (scratch.some((root) => insideDirectory(directory, root))) {
-    return directory;
-  }
-  return undefined;
+  const common = commonAncestorOf(required);
+  return common === undefined ? undefined : normalizeGrantDirectory(common);
 }

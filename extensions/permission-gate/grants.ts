@@ -2,10 +2,8 @@ import {
   type CommandClassKey,
   type CommandGrant,
   commandClassKey,
-  commandIsPlaceable,
-  deleteTargetsFor,
   describeCommandClass as describeClass,
-  grantOfferFor,
+  grantOfferForCommand,
   normalizeGrantDirectory,
   patternClassKey,
 } from "../../src/core/commands";
@@ -62,9 +60,14 @@ export function isCommandAllowed(command: string): boolean {
 
 /**
  * The grant to offer for a flagged command: the class it was matched as, in the
- * one directory that would cover it. Undefined when no directory the user is
- * already working in would cover it — a delete of something the working
- * directory does not own is allowed once, not granted over the tree around it.
+ * one directory that would cover it.
+ *
+ * It is worked out from the flagged element itself — the delete inside
+ * `cd /work/build && make && rm -rf $BDIR`, in the directory that `cd` put the
+ * shell in — because that is the only grant that would excuse the command the
+ * user is being asked about. Undefined when no directory the command was already
+ * working in would cover it: a delete of something outside its own directory is
+ * allowed once, not granted over the tree around it.
  */
 export function grantCandidateFor(
   classKey: CommandClassKey,
@@ -72,22 +75,17 @@ export function grantCandidateFor(
   cwd: string | undefined,
   scratchRoots: readonly string[] = [],
 ): CommandGrant | undefined {
-  // A grant is coverage, and coverage needs a directory the command ran in. A
-  // command that moves the working directory, or that never parsed, cannot be
-  // placed, so offering a grant for it would promise something no grant gives.
-  if (!commandIsPlaceable(command)) return undefined;
-
-  const directory = grantOfferFor(
-    classKey === DELETE_CLASS ? deleteTargetsFor(command) : [],
+  const directory = grantOfferForCommand({
+    command,
+    classKey,
     cwd,
+    home: process.env.HOME,
     scratchRoots,
-  );
+  });
   if (!directory) return undefined;
   if (isGrantTooBroad(directory)) return undefined;
   return { class: classKey, directory };
 }
-
-const DELETE_CLASS: CommandClassKey = "builtin:recursive force delete";
 
 /**
  * A grant for the whole home directory would cover the user's own work, which is
