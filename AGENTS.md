@@ -29,19 +29,33 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   under the granted directory and none is that directory itself; a wildcard
   target counts where its literal part sits (`/tmp/*` deletes inside `/tmp`,
   `literalTargetDirectory()`); a target the shell fills in from its first word,
-  and any class with no path targets, only where the call ran; a command that
-  moves the working directory, or whose targets span directories, is never
-  covered. What the prompt may *offer* is narrower than what a grant can cover:
-  `grantOfferFor()` names the working directory or something under it, or a
-  declared scratch root, and `commandIsPlaceable()` refuses an offer for a
-  command coverage could never apply to — one that moves the working directory,
-  or that the gate cannot place. A hand-written `permissionGate.grants` entry is
-  coverage as stated, so keeping an offer honest is the extension's job, not the
-  checker's.
+  and any class with no path targets, only where that command ran.
+- Every command in a program is placed in the directory the shell is in when it
+  runs: `workingDirectoriesFor()` in `src/core/commands/working-directory.ts`
+  follows the program in order. A literal `cd` or `pushd` moves the directory;
+  a `cd` whose target the shell fills in, `cd` with no target, `cd -` and `popd`
+  lose it; a subshell, a pipeline element and a command substitution are scoped
+  so a move inside them says nothing outside; a loop, `if` or `case` body places
+  the commands inside it and loses the directory afterwards because the body may
+  not run, or may run twice; a function definition whose body moves the
+  directory loses it until a literal `cd` says where the shell is. Coverage, the
+  scratch exemption and the grant offer are all decided against that directory,
+  so `cd build && rm -rf out` is placed in `build` and not in the directory the
+  call started in — a compound cleanup command is the normal shape of these
+  prompts, and the flagged delete has to be grantable where it actually runs.
+  A command inside a command substitution is not placed at all (which of the
+  enclosing commands carried it is not worth a parent chain), so it is excused
+  by nothing. A command whose deletes span directories no single grant covers is
+  never covered. What the prompt may *offer* is narrower than what a grant can cover:
+  `grantOfferForCommand()` names the flagged delete's own directory — the deepest
+  one covering every delete of that class in the command — and only when the
+  command was already working in it or it sits inside a declared scratch root.
+  A hand-written `permissionGate.grants` entry is coverage as stated, so keeping
+  an offer honest is the extension's job, not the checker's.
   `saveCommandGrant()` merges into the target scope's own raw config because
   `ConfigLoader.save()` replaces a scope wholesale, which would otherwise drop
   everything else that scope held.
-- A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses wildcard and variable targets, the scratch root itself, paths through a symlink, and a relative target it cannot place: no working directory, or a command that moves it with `cd`/`pushd`/`popd`. Keep `scratchScope` threaded from `createPermissionGateRule` into `checkDangerousCommand`, with `cwd` taken from the tool call context and dropped whenever the parsed command moves the working directory.
+- A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses wildcard and variable targets, the scratch root itself, paths through a symlink, and a relative target it cannot place: the command moved the directory with something it cannot resolve (`cd $WORK`, `cd -`, `popd`), or the delete sits in a body it cannot follow. Keep `scratchRoots` threaded from `createPermissionGateRule` into `checkDangerousCommand`, and place each delete in the directory that delete itself runs in (`workingDirectoriesFor()`) rather than the one the tool call started in.
 
 ## Documentation triggers
 

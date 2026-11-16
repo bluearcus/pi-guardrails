@@ -12,9 +12,9 @@ directory and none of them is the directory itself; a class with no path targets
 is covered when the call ran inside it; a target written as a variable or a
 wildcard is covered only there — a wildcard counts where its literal part sits,
 so a grant for `/tmp` covers `rm -rf /tmp/build/*` and not `rm -rf /home/mike/*`.
-`cd`/`pushd`/`popd` in the command voids the
-coverage, an action spanning directories is never covered, and no grant is
-offered for `/` or the home directory.
+A compound command is placed in the directory its own `cd` moved the shell to;
+an action spanning directories is never covered, and no grant is offered for `/`
+or the home directory.
 
 Every answer states what it covers — `Allow recursive force delete under
 ~/project this session` — and a grant is only ever offered over the directory

@@ -24,13 +24,16 @@ agent scratch root (`permissionGate.scratchDelete.roots`, default `/tmp`) is not
 flagged at all, because that is the agent's own working data. The exemption is
 structural — `src/core/commands/scratch.ts` — and is refused for a target that
 is a wildcard or variable, the whole scratch root, a path through a symlink, or
-relative and unplaceable (no working directory, or a command that moves it with
-`cd`/`pushd`/`popd`), and for any command that had to be matched as text.
-Relative roots and relative targets are placed against the tool call's working
-directory. Upstream flags every `rm -rf`, knows nothing of the working
-directory, and has no `roots` in the settings UI. When merging upstream, keep
-`scratchScope` threaded from `createPermissionGateRule` into
-`checkDangerousCommand` and the exemption inside the built-in matcher loop only.
+relative and unplaceable (the command moved the directory with something the
+gate cannot resolve — `cd $WORK`, `cd -`, `popd` — or the delete sits in a body
+it cannot follow), and for any command that had to be matched as text.
+Relative roots and relative targets are placed against the directory the delete
+itself runs in, which `workingDirectoriesFor()`
+(`src/core/commands/working-directory.ts`) reads out of the parsed command. Upstream
+flags every `rm -rf`, knows nothing of the working directory, and has no `roots`
+in the settings UI. When merging upstream, keep `scratchRoots` threaded from
+`createPermissionGateRule` into `checkDangerousCommand` and the exemption inside
+the built-in matcher loop only.
 
 Fork behavior change: a permission-gate grant covers a **class** of flagged
 command **inside one directory**, not the command string and not that class
@@ -42,10 +45,15 @@ or `pattern:<pattern>`, `directory` is absolute — and core decides coverage in
 `checkDangerousCommand`: a recursive delete is covered only when every target
 sits under the granted directory and none of them is that directory itself, a
 wildcard counts where its literal part sits, and a class with no path targets
-only when the call ran inside it. What the prompt may offer is narrower: a grant
-is only offered over the working directory or something under it, or a declared
-scratch root, and never for a command the gate cannot place. A session grant
-goes to the memory scope and an always grant to `permissionGate.alwaysScope`.
+only when the command ran inside it. Where a command runs is read from the
+command itself: the directory is followed through the parsed program, so the
+delete in `cd /work/build && make && rm -rf $BDIR` is placed in `/work/build`
+and grantable there, while a move the gate cannot resolve (`cd $WORK`, `cd -`,
+`popd`, a `cd` inside a loop or branch) places it nowhere. What the prompt may
+offer is narrower still: the tightest directory covering the flagged delete, and
+only if the command was already working in it or it is a declared scratch root.
+A session grant goes to the memory scope and an always grant to
+`permissionGate.alwaysScope`.
 Grants are saved by merging the target scope's own raw config, because
 `ConfigLoader.save()` replaces a scope wholesale. When merging upstream, keep
 the grant check inside `checkDangerousCommand` — never re-parse in the
@@ -202,7 +210,7 @@ word list decides whether it needs a guard. Measured on `@aliou/sh` 0.4.1:
 Recovery either shows every target or loses the command, so the exemption cannot be granted for a
 target the parse did not see, and `checkDangerousCommand` needs no extra condition. If upstream ever
 changes recovery so a command survives with a shortened word list, that condition becomes necessary:
-gate `scratchScope` on `parsedCleanly` in `src/core/commands/dangerous.ts`.
+gate `scratchRoots` on `parsedCleanly` in `src/core/commands/dangerous.ts`.
 
 Refused, each recorded in the ledger with its reason here:
 
