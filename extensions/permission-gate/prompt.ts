@@ -463,8 +463,13 @@ export function createPermissionGateConfirmComponent(
         );
         if (choosing) {
           questionText.setText(theme.fg("text", "Answer each directory:"));
-          const choiceWidth = 13;
-          const directoryWidth = Math.max(1, contentWidth - 6 - choiceWidth);
+          const choiceWidth = 6;
+          // The answer first, then the directory: the answer column lines up
+          // from row to row, and the directory gets the rest of the line.
+          const directoryWidth = Math.max(
+            1,
+            contentWidth - 2 - choiceWidth - 1,
+          );
           optionsText.setText(
             grants
               .map((grant, index) => {
@@ -477,13 +482,13 @@ export function createPermissionGateConfirmComponent(
                       : "warning";
                 return [
                   index === cursor ? theme.fg("error", ">") : " ",
+                  theme.fg(
+                    color,
+                    describeGrantChoice(choice).padEnd(choiceWidth),
+                  ),
                   truncateToWidth(
                     describeGrantDirectory(grant.directory),
                     directoryWidth,
-                  ),
-                  theme.fg(
-                    color,
-                    describeGrantChoice(choice).padStart(choiceWidth),
                   ),
                 ].join(" ");
               })

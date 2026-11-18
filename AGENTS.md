@@ -68,7 +68,10 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   (`allow` / `deny` / `stop`) plus an answer per impacted directory — `session`,
   `always`, `once` (allowed now, no standing grant) or `refuse`. With more than
   one directory the option list adds `c`, which opens a picker where `a`/`A`/`y`/`n`
-  answer the highlighted directory and `Tab` cycles it; with no custom component
+  answer the highlighted directory and `Tab` (or space) cycles it — a picker row is
+  the cursor, the answer padded to six columns, then the directory, so the answer
+  column is what lines up from row to row and the directory is what gets shortened;
+  with no custom component
   the same answers are a sequence of selects, one per directory. A command is
   atomic, so one refusal sets the outcome to `deny`, while the grants chosen for
   the other directories are still saved — an answer for `build` is an answer for

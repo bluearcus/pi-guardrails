@@ -309,6 +309,33 @@ describe("createPermissionGateConfirmComponent", () => {
 });
 
 describe("per-directory answers", () => {
+  it("lines the answers up in one column, whatever the directory", () => {
+    const { component, rendered } = mount(
+      "rm -rf build out",
+      "recursive force delete",
+      {
+        grants: [
+          { class: DELETE_CLASS, directory: "/home/mike/project/build" },
+          {
+            class: DELETE_CLASS,
+            directory:
+              "/home/mike/project/a/path/long/enough/to/run/past/the/row/and/keep/going",
+          },
+        ],
+      },
+    );
+
+    component.handleInput("c");
+    const rows = rendered()
+      .split("\n")
+      .filter((line) => line.includes("~/project/"));
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      // Cursor, a space, the answer padded to its column, then the directory.
+      expect(row.indexOf("~/project/")).toBe(9);
+    }
+  });
+
   it("answers each directory separately, granting one and refusing another", () => {
     const { component, rendered, result } = mount(
       "rm -rf build out",
