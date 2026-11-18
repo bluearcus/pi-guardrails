@@ -12,6 +12,7 @@ import { createMock, type PartialFuncReturn } from "@golevelup/ts-vitest";
 import { vol } from "memfs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configLoader } from "../../src/shared/config";
+import { answerFor, pressKeys } from "../../tests/utils/prompt-answers";
 import permissionGate from "./index";
 
 /**
@@ -26,19 +27,22 @@ type ToolCallHandler = ExtensionHandler<ToolCallEvent, ToolCallEventResult>;
 
 function createCtx(
   overrides: Partial<PartialFuncReturn<ExtensionContext>> & {
-    ui?: Partial<ExtensionContext["ui"]>;
+    ui?: Omit<Partial<ExtensionContext["ui"]>, "custom"> & {
+      custom?: unknown;
+    };
   } = {},
 ) {
   const { ui: uiOverrides, ...rest } = overrides;
+  const { custom: customOverride, ...uiRest } = uiOverrides ?? {};
   return createMock<ExtensionContext>({
     hasUI: true,
     mode: "tui",
     cwd: process.cwd(),
     ui: {
-      custom: vi.fn().mockResolvedValue(undefined),
+      custom: answerFor(customOverride) ?? vi.fn().mockResolvedValue(undefined),
       select: vi.fn().mockResolvedValue(undefined),
       notify: vi.fn(),
-      ...uiOverrides,
+      ...uiRest,
     },
     abort: vi.fn(),
     ...rest,
@@ -108,17 +112,34 @@ describe("permission gate grants", () => {
     expect(answered).toBeUndefined();
     expect(prompted.ui.custom).toHaveBeenCalledTimes(1);
 
-    // The next cleanup of the same class in the same directory is a different
-    // command string, and a relative one.
+    // The grant is for that directory, so the same directory spelled differently
+    // — relative, deeper — is quiet.
     for (const command of [
-      "rm -rf /home/mike/project/build-2",
-      "rm -rf .layout",
-      "rm -rf $BDIR",
+      "rm -rf build-1",
+      "rm -rf /home/mike/project/build-1/cache",
+      "rm -rf ./build-1/old",
     ]) {
       const next = createCtx({ cwd: PROJECT });
       const cleaned = await bash(command, next);
       expect(cleaned, command).toBeUndefined();
       expect(next.ui.custom, command).not.toHaveBeenCalled();
+    }
+
+    // A neighbouring build directory was never part of the answer, so it asks.
+    for (const command of [
+      "rm -rf build-2",
+      "rm -rf /home/mike/project/build-2",
+    ]) {
+      const neighbour = createCtx({
+        cwd: PROJECT,
+        ui: { custom: vi.fn().mockResolvedValue("deny") },
+      });
+      const flagged = await bash(command, neighbour);
+      expect(flagged, command).toEqual({
+        block: true,
+        reason: "User denied dangerous command",
+      });
+      expect(neighbour.ui.custom, command).toHaveBeenCalledTimes(1);
     }
 
     // A different class of risk still asks.
@@ -222,11 +243,146 @@ describe("permission gate grants", () => {
     const [, options] = select.mock.calls[0] ?? [];
     expect(options).toEqual([
       "Allow once",
-      "Allow recursive force delete under ~/project/build this session",
-      "Always allow recursive force delete under ~/project/build",
+      "Allow recursive force delete of ~/project/build this session",
+      "Always allow recursive force delete of ~/project/build",
       "Deny",
       "Decline and stop",
     ]);
+  });
+
+  it("asks for each directory a delete impacts and saves one grant per directory", async () => {
+    const { bash } = await startSession(true);
+
+    const select = vi
+      .fn()
+      .mockResolvedValue(
+        "Allow recursive force delete of ~/project/build, ~/project/out this session",
+      );
+    const ctx = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue(undefined), select },
+    });
+    const answered = await bash("rm -rf build out", ctx);
+    expect(answered).toBeUndefined();
+
+    const [, options] = select.mock.calls[0] ?? [];
+    expect(options).toEqual([
+      "Allow once",
+      "Allow recursive force delete of ~/project/build, ~/project/out this session",
+      "Always allow recursive force delete of ~/project/build, ~/project/out",
+      "Choose per directory (grant some, refuse others)",
+      "Deny",
+      "Decline and stop",
+    ]);
+
+    // A select has no room for the note, so the directories ride in its message.
+    const [message] = select.mock.calls[0] ?? [];
+    expect(message).toContain("~/project/build");
+    expect(message).toContain("~/project/out");
+
+    // Both directories are covered, by two entries a user can revoke separately.
+    for (const command of ["rm -rf build", "rm -rf out", "rm -rf build/old"]) {
+      const next = createCtx({ cwd: PROJECT });
+      const cleaned = await bash(command, next);
+      expect(cleaned, command).toBeUndefined();
+      expect(next.ui.custom, command).not.toHaveBeenCalled();
+    }
+
+    // A third directory in the same project was not part of the answer.
+    const third = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue("deny") },
+    });
+    const flagged = await bash("rm -rf tests", third);
+    expect(flagged).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+  });
+
+  it("answers each directory in turn when there is no custom component", async () => {
+    const { bash } = await startSession(true);
+
+    const select = vi
+      .fn()
+      .mockResolvedValueOnce("Choose per directory (grant some, refuse others)")
+      .mockResolvedValueOnce("Grant it for this session")
+      .mockResolvedValueOnce("Allow this command once, no grant");
+    const ctx = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue(undefined), select },
+    });
+    const answered = await bash("rm -rf build out", ctx);
+    expect(answered).toBeUndefined();
+
+    // One question per directory, in the order the prompt listed them.
+    const [firstQuestion] = select.mock.calls[1] ?? [];
+    expect(firstQuestion).toBe("recursive force delete of ~/project/build");
+    const [secondQuestion] = select.mock.calls[2] ?? [];
+    expect(secondQuestion).toBe("recursive force delete of ~/project/out");
+
+    const granted = createCtx({ cwd: PROJECT });
+    const quiet = await bash("rm -rf build", granted);
+    expect(quiet).toBeUndefined();
+    expect(granted.ui.custom).not.toHaveBeenCalled();
+
+    const ungranted = createCtx({ cwd: PROJECT, ui: { custom: "deny" } });
+    const blocked = await bash("rm -rf out", ungranted);
+    expect(blocked).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+  });
+
+  it("grants one directory and allows another once, in one answer", async () => {
+    const { bash } = await startSession(true);
+
+    // c opens the per-directory answers: a session grant for build-1, and no
+    // standing grant for out-1 even though this command is allowed.
+    const prompted = createCtx({
+      cwd: PROJECT,
+      ui: { custom: pressKeys(["c", "a", "y", "\r"]) },
+    });
+    const answered = await bash("rm -rf build-1 out-1", prompted);
+    expect(answered).toBeUndefined();
+
+    const granted = createCtx({ cwd: PROJECT });
+    const quiet = await bash("rm -rf build-1", granted);
+    expect(quiet).toBeUndefined();
+    expect(granted.ui.custom).not.toHaveBeenCalled();
+
+    const ungranted = createCtx({ cwd: PROJECT, ui: { custom: "deny" } });
+    const blocked = await bash("rm -rf out-1", ungranted);
+    expect(blocked).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+  });
+
+  it("refuses one directory without wasting the grant given to another", async () => {
+    const { bash } = await startSession(true);
+
+    const prompted = createCtx({
+      cwd: PROJECT,
+      ui: { custom: pressKeys(["c", "a", "n", "\r"]) },
+    });
+    // One command deletes both, so refusing out-1 blocks the command. The grant
+    // for build-1 is still the user's answer for that directory.
+    const blocked = await bash("rm -rf build-1 out-1", prompted);
+    expect(blocked).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
+
+    const granted = createCtx({ cwd: PROJECT });
+    const quiet = await bash("rm -rf build-1", granted);
+    expect(quiet).toBeUndefined();
+    expect(granted.ui.custom).not.toHaveBeenCalled();
+
+    const held = configLoader
+      .getConfig()
+      .permissionGate.grants.map((grant) => grant.directory);
+    expect(held).toEqual([`${PROJECT}/build-1`]);
   });
 
   it("writes an always grant to the project config as a class and directory", async () => {
@@ -243,7 +399,10 @@ describe("permission gate grants", () => {
     const contents = await readFile(configPath, "utf-8");
     const saved = JSON.parse(contents);
     expect(saved.permissionGate.grants).toEqual([
-      { class: "builtin:recursive force delete", directory: PROJECT },
+      {
+        class: "builtin:recursive force delete",
+        directory: `${PROJECT}/build-1`,
+      },
     ]);
     expect(ctx.ui.notify).toHaveBeenCalledWith(
       expect.stringContaining(".pi/extensions/guardrails.json"),
@@ -258,9 +417,20 @@ describe("permission gate grants", () => {
       isProjectTrusted: () => true,
     });
     const afterReload = createCtx({ cwd: PROJECT });
-    const next = await bash("rm -rf /home/mike/project/build-2", afterReload);
+    const next = await bash("rm -rf build-1/old", afterReload);
     expect(next).toBeUndefined();
     expect(afterReload.ui.custom).not.toHaveBeenCalled();
+
+    // And it is still only that directory.
+    const neighbour = createCtx({
+      cwd: PROJECT,
+      ui: { custom: vi.fn().mockResolvedValue("deny") },
+    });
+    const flagged = await bash("rm -rf build-2", neighbour);
+    expect(flagged).toEqual({
+      block: true,
+      reason: "User denied dangerous command",
+    });
   });
 
   it("offers no grant when the action spans directories", async () => {
@@ -289,10 +459,10 @@ describe("permission gate grants", () => {
 
     const [, options] = select.mock.calls[0] ?? [];
     expect(options).toContain(
-      "Allow recursive force delete under ~/project this session",
+      "Allow recursive force delete of ~/project/build-1 this session",
     );
     expect(options).not.toContain(
-      "Always allow recursive force delete under ~/project",
+      "Always allow recursive force delete of ~/project/build-1",
     );
     expect(ctx.ui.notify).toHaveBeenCalledWith(
       expect.stringContaining("not trusted"),

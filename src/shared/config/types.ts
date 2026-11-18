@@ -157,7 +157,7 @@ export interface ClassifierConfig {
   chat?: ChatReviewConfig;
   /**
    * Act on a step your request does not name when the reviewer judges its
-   * effect trivially reversible and confined — a cleanup of the agent's own
+   * effect easy to undo and confined — a cleanup of the agent's own
    * working data, an install, a generated file. On by default. Off asks about
    * anything the request does not clearly cover, however small the effect.
    * Default: true.
@@ -222,14 +222,17 @@ export interface GuardrailsConfig {
     autoDenyPatterns?: PatternConfig[];
     /**
      * Classes of flagged command the user allowed, each for one directory. A
-     * grant is the rule that flags the class plus where it is allowed:
-     * - `{ class: "builtin:recursive force delete", directory: "/tmp/work" }`
-     *   covers every recursive force delete of something inside `/tmp/work`;
+     * grant is the rule that flags the class plus the directory it is allowed
+     * for:
+     * - `{ class: "builtin:recursive force delete", directory: "/tmp/work/build" }`
+     *   covers every recursive force delete of `/tmp/work/build`, and of anything
+     *   under it;
      * - `{ class: "pattern:docker run --privileged", directory: "/srv" }` covers
      *   that configured pattern for commands run inside `/srv`.
-     * A grant covers the next command of the class in that directory, not the
-     * command line it was answered on, and never the granted directory itself.
-     * Entries union across scopes. Auto-deny patterns still win.
+     * A grant covers the next command of the class at that directory, not the
+     * command line it was answered on, and nothing beside that directory. A
+     * delete of two directories needs a grant for each of them. Entries union
+     * across scopes. Auto-deny patterns still win.
      */
     grants?: CommandGrant[];
     /** Config scope used when the user picks "Allow … always" in the prompt. Default: "local". */

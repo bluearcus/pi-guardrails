@@ -36,28 +36,37 @@ in the settings UI. When merging upstream, keep `scratchRoots` threaded from
 the built-in matcher loop only.
 
 Fork behavior change: a permission-gate grant covers a **class** of flagged
-command **inside one directory**, not the command string and not that class
+command **for one directory**, not the command string and not that class
 anywhere on the machine. Upstream answers "allow for session" by storing an
 anchored regex for that exact command in `permissionGate.allowedPatterns`, so
 the next command of the same kind prompts again. Here `permissionGate.grants`
 holds `{ class, directory }` pairs — `class` is `builtin:<matcher description>`
 or `pattern:<pattern>`, `directory` is absolute — and core decides coverage in
-`checkDangerousCommand`: a recursive delete is covered only when every target
-sits under the granted directory and none of them is that directory itself, a
-wildcard counts where its literal part sits, and a class with no path targets
-only when the command ran inside it. Where a command runs is read from the
-command itself: the directory is followed through the parsed program, so the
-delete in `cd /work/build && make && rm -rf $BDIR` is placed in `/work/build`
-and grantable there, while a move the gate cannot resolve (`cd $WORK`, `cd -`,
-`popd`, a `cd` inside a loop or branch) places it nowhere. What the prompt may
-offer is narrower still: the tightest directory covering the flagged delete, and
-only if the command was already working in it or it is a declared scratch root.
-A session grant goes to the memory scope and an always grant to
+`checkDangerousCommand`: a recursive delete is covered only when every target is
+the granted directory or sits under it, and a delete of several directories only
+when each of them is granted for its own directory, a wildcard counts where its
+literal part sits, and a class with no path targets only when the command ran
+inside it. Where a command runs is read from the command itself: the directory is
+followed through the parsed program, so the delete in
+`cd /work/build && make && rm -rf $BDIR` is placed in `/work/build` and grantable
+there, while a move the gate cannot resolve (`cd $WORK`, `cd -`, `popd`, a `cd`
+inside a loop or branch) places it nowhere. What the prompt may offer is narrower
+still: every directory the flagged delete impacts, each one its own grant —
+`rm -rf scratch` is granted for `<project>/scratch`, never for the project — and
+only where the delete was already working in that directory or it sits inside a
+declared scratch root. A grant over the directory the call started in is never
+offered, so `rm -rf .` and `rm -rf $BDIR` at the project root are allowed once or
+not at all, and a directory an existing grant already covers is not offered
+again. The prompt answers each impacted directory on its own — `c` opens that
+list, and `a` / `A` / `y` / `n` grant it for the session, grant it always, allow
+this command with no standing grant, or refuse it — and because the command runs
+whole, one refusal blocks it while the grants chosen for the other directories
+are still saved. A session grant goes to the memory scope and an always grant to
 `permissionGate.alwaysScope`.
 Grants are saved by merging the target scope's own raw config, because
 `ConfigLoader.save()` replaces a scope wholesale. When merging upstream, keep
 the grant check inside `checkDangerousCommand` — never re-parse in the
-extension — and keep `saveCommandGrant()` merge-based.
+extension — and keep `saveCommandGrants()` merge-based.
 
 ## Remotes
 

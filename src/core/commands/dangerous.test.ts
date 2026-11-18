@@ -8,7 +8,7 @@ import {
 import {
   builtinClassKey,
   type CommandGrant,
-  grantOfferForCommand,
+  grantOffersForCommand,
   patternClassKey,
 } from "./index";
 import { RECURSIVE_FORCE_DELETE } from "./scratch";
@@ -773,14 +773,20 @@ describe("checkDangerousCommand with directory grants", () => {
     );
   });
 
-  it("flags a delete of the granted directory itself", () => {
+  it("covers a delete of the granted directory itself, which is what such a grant names", () => {
+    // Only the prompt refuses that grant; a hand-written entry means what it says.
     expect(
       check(
         "rm -rf /home/mike/project",
         [{ class: deleteClass, directory: project }],
         "/home/mike",
-      )?.description,
-    ).toBe("recursive force delete");
+      ),
+    ).toBeUndefined();
+    expect(
+      check("cd build && rm -rf ..", [
+        { class: deleteClass, directory: project },
+      ]),
+    ).toBeUndefined();
   });
 
   it("covers a target written as a variable only inside the granted directory", () => {
@@ -806,7 +812,7 @@ describe("checkDangerousCommand with directory grants", () => {
       "cd /tmp/other && rm -rf build",
       "cd $WORK && rm -rf build",
       "cd /tmp/other && cd build && rm -rf out",
-      "cd build && rm -rf ..",
+      "cd build && rm -rf ../../outside",
     ]) {
       expect(check(command, undefined, project)?.description, command).toBe(
         "recursive force delete",
@@ -814,7 +820,29 @@ describe("checkDangerousCommand with directory grants", () => {
     }
   });
 
-  it("excuses a compound command when every delete in it is granted where it runs", () => {
+  it("excuses a compound command when every delete in it is granted for its own directory", () => {
+    const each: CommandGrant[] = [
+      { class: deleteClass, directory: `${project}/build` },
+      { class: deleteClass, directory: "/tmp/other/old" },
+    ];
+    expect(
+      check(
+        `rm -rf ${project}/build && cd /tmp/other && rm -rf old`,
+        each,
+        project,
+      ),
+    ).toBeUndefined();
+    // One delete's grant is not authority over the other delete's directory.
+    expect(
+      check(
+        `rm -rf ${project}/build && cd /tmp/other && rm -rf old`,
+        [each[0] as CommandGrant],
+        project,
+      )?.description,
+    ).toBe("recursive force delete");
+  });
+
+  it("excuses every delete under a directory someone granted by hand", () => {
     const both: CommandGrant[] = [
       { class: deleteClass, directory: project },
       { class: deleteClass, directory: "/tmp/other" },
@@ -826,14 +854,6 @@ describe("checkDangerousCommand with directory grants", () => {
         project,
       ),
     ).toBeUndefined();
-    // One grant is not authority over the other directory.
-    expect(
-      check(
-        `rm -rf ${project}/build && cd /tmp/other && rm -rf old`,
-        undefined,
-        project,
-      )?.description,
-    ).toBe("recursive force delete");
   });
 
   it("flags a target outside the grant alongside one inside it", () => {
@@ -881,7 +901,7 @@ describe("checkDangerousCommand with directory grants", () => {
   });
 });
 
-describe("grantOfferForCommand", () => {
+describe("grantOffersForCommand", () => {
   const project = "/home/mike/project";
   const deleteClass = builtinClassKey(RECURSIVE_FORCE_DELETE);
 
@@ -892,26 +912,77 @@ describe("grantOfferForCommand", () => {
       home?: string;
       roots?: readonly string[];
       classKey?: string;
+      grants?: readonly CommandGrant[];
     } = {},
   ) {
-    return grantOfferForCommand({
+    return grantOffersForCommand({
       command,
       classKey: options.classKey ?? deleteClass,
       cwd: options.cwd ?? project,
       home: options.home,
       scratchRoots: options.roots ?? ["/tmp"],
+      grants: options.grants,
     });
   }
+
+  it("names the directory the delete hits, not the one holding it", () => {
+    expect(offer("rm -rf scratch")).toEqual([`${project}/scratch`]);
+    expect(offer("rm -rf scratch/")).toEqual([`${project}/scratch`]);
+    expect(offer("rm -rf build/out/deep")).toEqual([
+      `${project}/build/out/deep`,
+    ]);
+    expect(offer(`rm -rf ${project}/scratch`)).toEqual([`${project}/scratch`]);
+  });
+
+  it("leaves out a directory a grant already covers", () => {
+    const held = [{ class: deleteClass, directory: `${project}/build` }];
+    expect(offer("rm -rf build out", { grants: held })).toEqual([
+      `${project}/out`,
+    ]);
+
+    // A grant for something deeper is not authority over the directory above it.
+    expect(
+      offer("rm -rf build", {
+        grants: [{ class: deleteClass, directory: `${project}/build/cache` }],
+      }),
+    ).toEqual([`${project}/build`]);
+
+    // Only a grant of the same class counts.
+    expect(
+      offer("rm -rf build", {
+        grants: [
+          { class: patternClassKey("rm -rf"), directory: `${project}/build` },
+        ],
+      }),
+    ).toEqual([`${project}/build`]);
+  });
+
+  it("names one directory per target, sorted for display", () => {
+    expect(offer("rm -rf build out")).toEqual([
+      `${project}/build`,
+      `${project}/out`,
+    ]);
+    expect(offer("rm -rf tests build")).toEqual([
+      `${project}/build`,
+      `${project}/tests`,
+    ]);
+    expect(offer("rm -rf build && rm -rf out")).toEqual([
+      `${project}/build`,
+      `${project}/out`,
+    ]);
+    expect(offer("rm -rf build build/")).toEqual([`${project}/build`]);
+  });
 
   it("names the directory a compound command actually works in", () => {
     expect(
       offer("cd /work/follow9/build && make && rm -rf $BDIR", {
         cwd: "/workspace",
       }),
-    ).toBe("/work/follow9/build");
-    expect(offer("cd build && rm -rf out")).toBe(`${project}/build`);
-    expect(offer("rm -rf build/out/deep")).toBe(`${project}/build/out`);
-    expect(offer("rm -rf $BDIR")).toBe(project);
+    ).toEqual(["/work/follow9/build"]);
+    expect(offer("cd build && rm -rf out")).toEqual([`${project}/build/out`]);
+    expect(offer("cd /work && rm -rf $BDIR", { cwd: "/workspace" })).toEqual([
+      "/work",
+    ]);
   });
 
   it("offers nothing for a delete that climbs out of the directory it runs in", () => {
@@ -925,24 +996,50 @@ describe("grantOfferForCommand", () => {
     }
   });
 
-  it("offers a scratch root for a delete outside the working directory", () => {
-    expect(offer("rm -rf /tmp/build")).toBe("/tmp");
-    expect(offer("cd /home/mike/project && rm -rf /tmp/x")).toBe("/tmp");
-    expect(offer("rm -rf ./scratch/build", { roots: ["./scratch"] })).toBe(
-      `${project}/scratch`,
-    );
+  it("offers nothing over the directory the call started in", () => {
+    // A grant for the project directory is authority over the whole project, and
+    // a delete whose target the shell fills in cannot be pinned to a directory
+    // inside it. Both are allowed once, never granted.
+    for (const command of [
+      "rm -rf .",
+      `rm -rf ${project}`,
+      "rm -rf $BDIR",
+      "rm -rf *",
+    ]) {
+      expect(offer(command), command).toBeUndefined();
+    }
+    // The same delete is grantable once the command has moved somewhere specific.
+    expect(offer("cd build && rm -rf $BDIR")).toEqual([`${project}/build`]);
   });
 
-  it("offers nothing when the deletes span directories no single grant covers", () => {
-    expect(offer("rm -rf /tmp/a /home/mike/project/b")).toBeUndefined();
+  it("offers a scratch root for a delete inside one", () => {
+    expect(offer("rm -rf /tmp/build")).toEqual(["/tmp/build"]);
+    expect(offer("cd /home/mike/project && rm -rf /tmp/x")).toEqual(["/tmp/x"]);
+    expect(offer("rm -rf ./scratch/build", { roots: ["./scratch"] })).toEqual([
+      `${project}/scratch/build`,
+    ]);
+  });
+
+  it("offers a grant for every directory a spanning delete impacts", () => {
+    expect(offer("rm -rf /tmp/a /home/mike/project/b")).toEqual([
+      `${project}/b`,
+      "/tmp/a",
+    ]);
     expect(
       offer("cd /tmp/a && rm -rf x && cd /home/mike/project && rm -rf y"),
-    ).toBeUndefined();
+    ).toEqual([`${project}/y`, "/tmp/a/x"]);
+  });
+
+  it("offers nothing when one impacted directory is not askable", () => {
+    // A partial answer would leave the same command flagged again.
+    expect(offer("rm -rf build /home/mike/Sync")).toBeUndefined();
+    expect(offer("rm -rf build ..")).toBeUndefined();
   });
 
   it("offers the directory a wildcard deletes inside", () => {
-    expect(offer("rm -rf /tmp/*")).toBe("/tmp");
-    expect(offer("rm -rf build/*")).toBe(`${project}/build`);
+    expect(offer("rm -rf /tmp/*")).toEqual(["/tmp"]);
+    expect(offer("rm -rf build/*")).toEqual([`${project}/build`]);
+    expect(offer("rm -rf scratch/*.old")).toEqual([`${project}/scratch`]);
     expect(offer("rm -rf /home/mike/other/*")).toBeUndefined();
   });
 
@@ -952,7 +1049,7 @@ describe("grantOfferForCommand", () => {
         cwd: "/workspace",
         home: "/home/mike",
       }),
-    ).toBe("/home/mike/work/build");
+    ).toEqual(["/home/mike/work/build/out"]);
     expect(
       offer("cd ~/work/build && rm -rf out", { cwd: "/workspace" }),
     ).toBeUndefined();
@@ -963,10 +1060,10 @@ describe("grantOfferForCommand", () => {
       offer("cd /tmp/work && docker run --privileged x", {
         classKey: "builtin:container with privileged mode",
       }),
-    ).toBe("/tmp/work");
-    expect(offer("sudo make", { classKey: "builtin:superuser command" })).toBe(
-      project,
-    );
+    ).toEqual(["/tmp/work"]);
+    expect(
+      offer("sudo make", { classKey: "builtin:superuser command" }),
+    ).toEqual([project]);
     expect(
       offer("cd $WORK && sudo make", { classKey: "builtin:superuser command" }),
     ).toBeUndefined();

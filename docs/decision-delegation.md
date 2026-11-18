@@ -124,13 +124,13 @@ instead. It is still ordinary extension code and can use its own `pi` API.
   one line per delegate with its verdict, reason, and time.
 
 - When an escalated action still asks you, the delegates' reasoning comes with
-  it. The permission-gate prompt puts `Model review (2.4s): classifier: leaned
-  in scope, but not confidently enough (82%)` between the command and "Allow
+  it. The permission-gate prompt puts `Model review (2.4s): classifier: your
+  request probably covers this, but only 82% sure` between the command and "Allow
   execution?"; path-access puts it under the path lines. The select fallback
   used in RPC mode carries the same line.
 - A headless block says the same thing to the model: `Dangerous command blocked
   (no UI to confirm): recursive force delete. Model review (2.4s): classifier:
-  outside what you asked for, impact 3.0/4`.
+  not covered by your request, impact 3.0/4`.
 
 ## Events
 
@@ -151,8 +151,8 @@ For each flagged action it asks the model three questions, using the user's
 recent requests in the session as the only source of authorization:
 
 1. Is there enough context to judge the action?
-2. Is it in scope of what the user asked, unclear, or out of scope? A step the
-   request implies counts as in scope, including clearing or rebuilding the
+2. Does the user's request cover it — yes, unclear, or no? A step the
+   request implies counts as covered, including clearing or rebuilding the
    agent's own working data for the task — no message has to name the cleanup.
 3. What is its impact, from 0 (read-only) to 4 (system-wide or exfiltrating)?
    Replacing the agent's own working data — a scratch or clone directory, build
@@ -163,13 +163,16 @@ recent requests in the session as the only source of authorization:
    work, does not.
 
 The answers map to a verdict with fixed thresholds
-(`extensions/classifier/decision.ts`):
+(`extensions/classifier/decision.ts`), and the reason each verdict reports is
+spelled the same way — what the request covers, and how sure the reviewer is
+about it:
 
-- confidently out of scope with impact ≥ 2 → block
-- in scope, confident, and impact below 2.5 → allow
-- unclear scope, enough context, and impact below 1.5 → allow. A request to do a
-  task covers the housekeeping doing it needs, and an effect that is trivially
-  reversible has nothing to protect by asking. Set
+- confidently not covered by the request, with impact ≥ 2 → block
+- covered by the request, confident, and impact below 2.5 → allow
+- unclear whether the request covers it, enough context, and impact below 1.5 →
+  allow. A request to do a
+  task covers the housekeeping doing it needs, and an effect that is easy to
+  undo has nothing to protect by asking. Set
   `classifier.allowUnrequestedLowImpact` to `false` to ask about anything the
   request does not clearly cover, however small its effect
 - anything else, including missing context or a model failure → ask
@@ -215,8 +218,8 @@ A chat reviewer is a general cloud model (Gemini, GPT, DeepSeek, …) judging th
 action, which is how a dangerous command gets approved or blocked without you.
 
 Chat answers carry a self-reported `confidence` for each answer. A missing or
-malformed confidence counts as 0.75: enough to block an action the model calls
-out of scope, never enough to run one without asking you.
+malformed confidence counts as 0.75: enough to block an action the model says
+your request does not cover, never enough to run one without asking you.
 
 Self-reported confidence sits lower than a classifier's measured probability, so
 a chat reviewer is allowed at `allowConfidence` (default 0.8) rather than the

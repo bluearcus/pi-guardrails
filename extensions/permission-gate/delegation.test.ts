@@ -12,6 +12,7 @@ import {
   registerDelegate,
 } from "../../src/shared/delegation";
 import { GUARDRAILS_ACTION_BLOCKED_EVENT } from "../../src/shared/events";
+import { answerPrompt } from "../../tests/utils/prompt-answers";
 import { NOOP_THEME } from "../../tests/utils/theme";
 import permissionGate from "./index";
 
@@ -75,7 +76,7 @@ async function setup(decide?: GuardrailsDelegate["decide"]) {
   }
   await permissionGate(pi);
 
-  const custom = vi.fn(async () => "allow");
+  const custom = answerPrompt("allow");
   const ctx = {
     cwd: "/workspace",
     hasUI: true,
@@ -350,8 +351,7 @@ describe("permission gate delegation", () => {
   it("shows the reviewer's reasoning in the confirm prompt", async () => {
     const { run, custom } = await setup(() => ({
       verdict: "ask",
-      reason:
-        "in scope, but impact 3.0/4 is at or above the destructive threshold",
+      reason: "your request covers this, but impact 3.0/4 is hard to undo",
     }));
 
     await run("dangerous-cmd");
@@ -376,6 +376,6 @@ describe("permission gate delegation", () => {
 
     expect(text).toContain("test danger");
     expect(text).toContain("Model review");
-    expect(text).toContain("test: in scope, but impact 3.0/4");
+    expect(text).toContain("test: your request covers this, but impact 3.0/4");
   });
 });

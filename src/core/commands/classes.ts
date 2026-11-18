@@ -18,17 +18,16 @@ export const STRUCTURAL_PATTERN = "(structural)";
  *
  * An answer at a dangerous-command prompt is only worth having if it covers the
  * next command of the same kind, and the trust a user is granting is trust in a
- * place: recursive force delete is allowed where the task is happening, not
- * everywhere on the machine, and not for one spelling of one command line. A
- * grant is therefore a pair — the rule that flagged the command, and the
- * directory the action happens in.
+ * place: recursive force delete is allowed for the directory the delete hits,
+ * not for everything around it, not everywhere on the machine, and not for one
+ * spelling of one command line. A grant is therefore a pair — the rule that
+ * flagged the command, and the directory the action impacts.
  *
- * Coverage is checked target by target where the class has targets. For a
- * recursive force delete, every target has to sit inside the granted directory:
- * a literal path is placed against the working directory first, and a target
- * written as a variable or a wildcard is covered only when the command runs
- * inside the directory, because nothing can say where it lands. Classes without
- * path targets are covered where the command runs.
+ * The directory a delete grant names is the directory it deletes: `rm -rf
+ * scratch` is a grant for `<cwd>/scratch`, which says nothing about the rest of
+ * the tree that scratch directory sits in. Coverage is checked target by target,
+ * so a delete of two directories needs a grant for each of them, and one grant
+ * over the directory holding both is not what was agreed.
  */
 
 /** The rule that flagged the class: a built-in matcher or a configured pattern. */
@@ -105,10 +104,53 @@ export function grantTargetsFor(
     : [];
 }
 
+/** The granted directory as a path to work with, or undefined for a bad entry. */
+function grantDirectoryOf(grant: CommandGrant): string | undefined {
+  return normalizeGrantDirectory(grant.directory);
+}
+
+/** Whether a path is reached from the granted directory without a link. */
+function nothingLinksOnTheWayDown(directory: string, path: string): boolean {
+  const hazard = linksOnTheWayDown(path, directory);
+  return !hazard.link && !hazard.unreadable;
+}
+
 /**
- * Whether one grant covers a flagged command. `targets` are the operand words it
- * names, `cwd` the directory that command runs in — for a compound command, the
- * directory its own `cd` put the shell in, not the one the call started in.
+ * Whether one grant covers one target of a flagged command.
+ *
+ * A literal target is covered when it is the granted directory or sits under it:
+ * the grant names the directory the delete impacts, so deleting that directory is
+ * precisely what the answer was given for. A pattern counts where its literal part
+ * sits — `/tmp/*` empties `/tmp`, so a grant has to cover `/tmp`. A target the
+ * shell fills in from its first word names no directory at all, and the only thing
+ * a grant can check for it is where the command runs.
+ */
+function targetIsCovered(
+  directory: string,
+  target: string,
+  cwd: string | undefined,
+): boolean {
+  if (NOT_LITERAL.test(target)) {
+    const area = literalTargetDirectory(target, cwd);
+    if (!area) return cwd !== undefined && insideDirectory(cwd, directory);
+    if (!insideDirectory(area, directory)) return false;
+    return area === directory || nothingLinksOnTheWayDown(directory, area);
+  }
+
+  const path = target.startsWith("/")
+    ? normalizeAbsolutePath(target)
+    : cwd
+      ? normalizeAbsolutePath(`${cwd}/${target}`)
+      : undefined;
+  if (!path || !insideDirectory(path, directory)) return false;
+  return path === directory || nothingLinksOnTheWayDown(directory, path);
+}
+
+/**
+ * Whether one grant covers a flagged command on its own. `targets` are the operand
+ * words it names, `cwd` the directory that command runs in — for a compound
+ * command, the directory its own `cd` put the shell in, not the one the call
+ * started in.
  */
 export function commandGrantCovers(
   grant: CommandGrant,
@@ -117,43 +159,13 @@ export function commandGrantCovers(
   cwd: string | undefined,
 ): boolean {
   if (grant.class !== classKey) return false;
-  const directory = normalizeGrantDirectory(grant.directory);
+  const directory = grantDirectoryOf(grant);
   if (!directory) return false;
 
   if (targets.length === 0)
     return cwd !== undefined && insideDirectory(cwd, directory);
 
-  for (const target of targets) {
-    if (NOT_LITERAL.test(target)) {
-      // A pattern says where it deletes even though no single path is named:
-      // `/tmp/*` empties `/tmp`, so a grant has to cover `/tmp`. A target the
-      // shell fills in from its first word has no literal directory at all, and
-      // the only thing a grant can check for it is where the command runs.
-      const area = literalTargetDirectory(target, cwd);
-      if (!area) {
-        if (!cwd || !insideDirectory(cwd, directory)) return false;
-        continue;
-      }
-      if (!insideDirectory(area, directory)) return false;
-      const hazard = linksOnTheWayDown(area, directory);
-      if (hazard.link || hazard.unreadable) return false;
-      continue;
-    }
-
-    const path = target.startsWith("/")
-      ? normalizeAbsolutePath(target)
-      : cwd
-        ? normalizeAbsolutePath(`${cwd}/${target}`)
-        : undefined;
-    if (!path) return false;
-    if (path === directory) return false;
-    if (!insideDirectory(path, directory)) return false;
-
-    const hazard = linksOnTheWayDown(path, directory);
-    if (hazard.link || hazard.unreadable) return false;
-  }
-
-  return true;
+  return targets.every((target) => targetIsCovered(directory, target, cwd));
 }
 
 /**
@@ -180,70 +192,84 @@ export function literalTargetDirectory(
     : normalizeGrantDirectory(cwd ? `${cwd}/${literal.join("/")}` : undefined);
 }
 
-/** Whether any grant covers a flagged command. */
-export function commandGrantCoversAny(
+/**
+ * Whether the grants cover a flagged command between them. Every target needs its
+ * own cover: a delete of two directories is excused by a grant for each of the
+ * directories it impacts, and never by one grant over the directory that happens
+ * to hold both.
+ */
+export function commandGrantsCover(
   grants: readonly CommandGrant[],
   classKey: CommandClassKey,
   targets: readonly string[],
   cwd: string | undefined,
 ): boolean {
-  return grants.some((grant) =>
-    commandGrantCovers(grant, classKey, targets, cwd),
+  const directories = grants
+    .filter((grant) => grant.class === classKey)
+    .map(grantDirectoryOf)
+    .filter((directory): directory is string => directory !== undefined);
+  if (directories.length === 0) return false;
+
+  if (targets.length === 0)
+    return (
+      cwd !== undefined && directories.some((d) => insideDirectory(cwd, d))
+    );
+
+  return targets.every((target) =>
+    directories.some((directory) => targetIsCovered(directory, target, cwd)),
   );
 }
 
 /**
- * The deepest directory containing every directory in `directories`, or undefined
- * when they have no parent below the filesystem root.
+ * Whether one existing grant already covers one directory a command impacts.
+ * An offer uses it to ask only for the directories that still need an answer, so
+ * a second `rm -rf build out` after `build` was granted asks about `out` alone.
  */
-export function commonAncestorOf(
-  directories: readonly string[],
-): string | undefined {
-  if (directories.length === 0) return undefined;
-  let common = directories[0] as string;
-  for (const directory of directories.slice(1)) {
-    while (directory !== common && !directory.startsWith(`${common}/`)) {
-      const cut = common.lastIndexOf("/");
-      if (cut <= 0) return undefined;
-      common = common.slice(0, cut);
-    }
-  }
-  return common;
+export function grantCoversDirectory(
+  grant: CommandGrant,
+  classKey: CommandClassKey,
+  directory: string,
+  cwd: string | undefined,
+): boolean {
+  if (grant.class !== classKey) return false;
+  const granted = grantDirectoryOf(grant);
+  return granted !== undefined && targetIsCovered(granted, directory, cwd);
 }
 
 /**
- * The directory a grant should name for a flagged command: the deepest directory
- * that would actually cover it. Literal targets contribute the directory they
- * sit in; a pattern contributes the literal directory it deletes inside; a
- * target the shell fills in contributes the working directory, because that is
- * all a grant can check for it. Undefined when the action spans directories no
- * single grant covers.
+ * The directories a flagged delete impacts, one per operand, deduplicated.
+ *
+ * A literal operand names the directory the delete hits, and that is what a grant
+ * has to name: `rm -rf scratch` impacts `<cwd>/scratch`, not the directory holding
+ * it. A pattern names a set of things inside one directory, so its literal part is
+ * what a grant names — `rm -rf scratch/*` is a delete inside `scratch`. A target
+ * the shell fills in names nothing, and the only place it can land is the directory
+ * the delete runs in. Undefined when an operand cannot be placed at all, because
+ * then no directory can be named for it.
  */
-export function grantDirectoryFor(
+export function impactedDirectoriesFor(
   targets: readonly string[],
   cwd: string | undefined,
-): string | undefined {
-  const required: string[] = [];
+): string[] | undefined {
+  const directories: string[] = [];
+
   for (const target of targets) {
+    let directory: string | undefined;
     if (NOT_LITERAL.test(target)) {
-      const directory =
+      directory =
         literalTargetDirectory(target, cwd) ?? normalizeGrantDirectory(cwd);
-      if (!directory) return undefined;
-      required.push(directory);
-      continue;
+    } else {
+      const path = target.startsWith("/")
+        ? normalizeAbsolutePath(target)
+        : cwd
+          ? normalizeAbsolutePath(`${cwd}/${target}`)
+          : undefined;
+      directory = normalizeGrantDirectory(path);
     }
 
-    const path = target.startsWith("/")
-      ? normalizeAbsolutePath(target)
-      : cwd
-        ? normalizeAbsolutePath(`${cwd}/${target}`)
-        : undefined;
-    if (!path) return undefined;
-    required.push(path.slice(0, path.lastIndexOf("/")) || "/");
+    if (!directory) return undefined;
+    if (!directories.includes(directory)) directories.push(directory);
   }
 
-  if (required.length === 0) return normalizeGrantDirectory(cwd);
-
-  const common = commonAncestorOf(required);
-  return common === undefined ? undefined : normalizeGrantDirectory(common);
+  return directories.length > 0 ? directories : undefined;
 }

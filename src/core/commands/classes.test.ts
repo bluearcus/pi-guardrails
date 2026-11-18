@@ -6,11 +6,11 @@ import {
   type CommandGrant,
   commandClassKey,
   commandGrantCovers,
-  commandGrantCoversAny,
-  commonAncestorOf,
+  commandGrantsCover,
   describeCommandClass,
-  grantDirectoryFor,
+  grantCoversDirectory,
   grantTargetsFor,
+  impactedDirectoriesFor,
   literalTargetDirectory,
   normalizeGrantDirectory,
   patternClassKey,
@@ -107,15 +107,26 @@ describe("commandGrantCovers", () => {
     ).toBe(false);
   });
 
-  it("does not cover a target that is the granted directory itself", () => {
+  it("covers the granted directory itself, which is what a delete grant names", () => {
     expect(
       commandGrantCovers(
-        grant("/home/mike/project"),
+        grant("/home/mike/project/scratch"),
         DELETE,
-        ["/home/mike/project"],
-        "/home/mike",
+        ["/home/mike/project/scratch"],
+        "/home/mike/project",
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("covers a target that is the granted directory spelled as a relative path", () => {
+    expect(
+      commandGrantCovers(
+        grant("/home/mike/project/scratch"),
+        DELETE,
+        ["scratch", "scratch/"],
+        "/home/mike/project",
+      ),
+    ).toBe(true);
   });
 
   it("places a relative target in the working directory", () => {
@@ -178,7 +189,7 @@ describe("commandGrantCovers", () => {
     ).toBe(false);
   });
 
-  it("does not cover a command that leaves the directory with one target there", () => {
+  it("does not cover two directories with a grant for one of them", () => {
     expect(
       commandGrantCovers(
         grant("/home/mike/project"),
@@ -223,15 +234,48 @@ describe("commandGrantCovers", () => {
     ).toBe(false);
   });
 
-  it("is covered by any grant in a list", () => {
+  it("is covered by grants taken for each directory the command impacts", () => {
     expect(
-      commandGrantCoversAny(
-        [grant("/tmp"), grant("/home/mike/project")],
+      commandGrantsCover(
+        [grant("/home/mike/project/build"), grant("/tmp/a")],
         DELETE,
-        ["/home/mike/project/build"],
+        ["/home/mike/project/build", "/tmp/a"],
         "/home/mike/project",
       ),
     ).toBe(true);
+  });
+
+  it("is not covered while one impacted directory has no grant of its own", () => {
+    expect(
+      commandGrantsCover(
+        [grant("/home/mike/project/build")],
+        DELETE,
+        ["/home/mike/project/build", "/home/mike/project/out"],
+        "/home/mike/project",
+      ),
+    ).toBe(false);
+    expect(
+      commandGrantsCover(
+        [grant("/home/mike/project")],
+        DELETE,
+        ["/home/mike/project/build", "/home/mike/Sync"],
+        "/home/mike/project",
+      ),
+    ).toBe(false);
+  });
+
+  it("says nothing for a class no grant names", () => {
+    expect(
+      commandGrantsCover([], DELETE, ["/home/mike/project/build"], undefined),
+    ).toBe(false);
+    expect(
+      commandGrantsCover(
+        [grant("/tmp", builtinClassKey("superuser command"))],
+        DELETE,
+        [],
+        "/tmp",
+      ),
+    ).toBe(false);
   });
 });
 
@@ -246,70 +290,101 @@ describe("grantTargetsFor", () => {
   });
 });
 
-describe("grantDirectoryFor", () => {
-  it("names the directory the target sits in", () => {
-    expect(grantDirectoryFor(["/tmp/work/build"], "/tmp")).toBe("/tmp/work");
-  });
-
-  it("names the working directory for a relative target", () => {
-    expect(grantDirectoryFor([".layout"], "/home/mike/project")).toBe(
-      "/home/mike/project",
-    );
-  });
-
-  it("names the working directory when a target cannot be placed", () => {
-    expect(grantDirectoryFor(["$BDIR"], "/home/mike/project")).toBe(
-      "/home/mike/project",
-    );
-    expect(grantDirectoryFor([], "/home/mike/project")).toBe(
-      "/home/mike/project",
-    );
-  });
-
-  it("names nothing when a target it cannot place is elsewhere", () => {
+describe("grantCoversDirectory", () => {
+  it("covers the directory a grant names and what is under it", () => {
+    const held = grant("/tmp/work/build");
     expect(
-      grantDirectoryFor(["$BDIR", "/tmp/a"], "/home/mike/project"),
-    ).toBeUndefined();
-    expect(grantDirectoryFor(["$BDIR"], undefined)).toBeUndefined();
+      grantCoversDirectory(held, DELETE, "/tmp/work/build", undefined),
+    ).toBe(true);
+    expect(
+      grantCoversDirectory(held, DELETE, "/tmp/work/build/cache", "/tmp/work"),
+    ).toBe(true);
   });
 
-  it("names the directory several targets share", () => {
+  it("does not cover the directory above the one it names, or a sibling", () => {
+    const held = grant("/tmp/work/build");
+    expect(grantCoversDirectory(held, DELETE, "/tmp/work", undefined)).toBe(
+      false,
+    );
+    expect(grantCoversDirectory(held, DELETE, "/tmp/work/out", undefined)).toBe(
+      false,
+    );
+  });
+
+  it("counts only for the class the grant was taken for", () => {
+    const held = grant("/tmp/work/build");
     expect(
-      grantDirectoryFor(
-        ["/home/mike/project/a/build", "/home/mike/project/b/out"],
-        "/home/mike/project",
+      grantCoversDirectory(
+        held,
+        patternClassKey("rm -rf"),
+        "/tmp/work/build",
+        undefined,
       ),
-    ).toBe("/home/mike/project");
-    expect(grantDirectoryFor(["/tmp/build"], undefined)).toBe("/tmp");
-  });
-
-  it("names nothing when the targets share no directory", () => {
-    expect(
-      grantDirectoryFor(["/home/mike/Sync", "/tmp/build"], "/home/mike"),
-    ).toBeUndefined();
+    ).toBe(false);
   });
 });
 
-describe("commonAncestorOf", () => {
-  it("names the deepest directory containing all of them", () => {
-    expect(commonAncestorOf(["/home/mike/project/build"])).toBe(
-      "/home/mike/project/build",
-    );
-    expect(
-      commonAncestorOf([
-        "/home/mike/project/build",
-        "/home/mike/project/build/out",
-      ]),
-    ).toBe("/home/mike/project/build");
-    expect(
-      commonAncestorOf(["/home/mike/project/a", "/home/mike/project/b"]),
-    ).toBe("/home/mike/project");
+describe("impactedDirectoriesFor", () => {
+  it("names the directory a literal target is", () => {
+    expect(impactedDirectoriesFor(["/tmp/work/build"], "/tmp")).toEqual([
+      "/tmp/work/build",
+    ]);
+    expect(impactedDirectoriesFor(["build/out/deep"], "/tmp")).toEqual([
+      "/tmp/build/out/deep",
+    ]);
   });
 
-  it("names nothing when they only share the filesystem root", () => {
-    expect(commonAncestorOf(["/tmp/a", "/home/mike/project"])).toBeUndefined();
-    expect(commonAncestorOf(["/tmp", "/home"])).toBeUndefined();
-    expect(commonAncestorOf([])).toBeUndefined();
+  it("names the target itself, never the directory holding it", () => {
+    expect(impactedDirectoriesFor(["scratch"], "/home/mike/project")).toEqual([
+      "/home/mike/project/scratch",
+    ]);
+    expect(impactedDirectoriesFor(["scratch/"], "/home/mike/project")).toEqual([
+      "/home/mike/project/scratch",
+    ]);
+  });
+
+  it("names each of several targets, keeping the order they were written in", () => {
+    expect(
+      impactedDirectoriesFor(
+        ["/home/mike/project/build", "/home/mike/project/out"],
+        "/home/mike/project",
+      ),
+    ).toEqual(["/home/mike/project/build", "/home/mike/project/out"]);
+  });
+
+  it("names one directory once when targets repeat it", () => {
+    expect(
+      impactedDirectoriesFor(
+        ["build", "/home/mike/project/build", "build/"],
+        "/home/mike/project",
+      ),
+    ).toEqual(["/home/mike/project/build"]);
+  });
+
+  it("names the directory a pattern deletes inside", () => {
+    expect(impactedDirectoriesFor(["build/*"], "/home/mike/project")).toEqual([
+      "/home/mike/project/build",
+    ]);
+    expect(impactedDirectoriesFor(["/tmp/build/*"], undefined)).toEqual([
+      "/tmp/build",
+    ]);
+  });
+
+  it("names the working directory for a target the shell fills in", () => {
+    expect(impactedDirectoriesFor(["$BDIR"], "/home/mike/project")).toEqual([
+      "/home/mike/project",
+    ]);
+    expect(impactedDirectoriesFor(["$BDIR", "/tmp/a"], "/tmp")).toEqual([
+      "/tmp",
+      "/tmp/a",
+    ]);
+  });
+
+  it("names nothing when a target cannot be placed", () => {
+    expect(impactedDirectoriesFor(["$BDIR"], undefined)).toBeUndefined();
+    expect(impactedDirectoriesFor(["../outside"], undefined)).toBeUndefined();
+    expect(impactedDirectoriesFor([], "/home/mike/project")).toBeUndefined();
+    expect(impactedDirectoriesFor(["/"], "/home/mike/project")).toBeUndefined();
   });
 });
 

@@ -16,8 +16,8 @@ directory loses it until a literal `cd` restores it.
 
 Coverage, the scratch exemption and the grant offer are each decided against the
 directory the flagged command itself runs in. `cd /work/build && rm -rf $BDIR`
-now prompts with `Allow recursive force delete under /work/build this session`,
-a grant for `/work/build` excuses it and its relatives, `cd /tmp/work && rm -rf
+now prompts with `Allow recursive force delete of /work/build this session`,
+a grant for `/work/build` excuses it and what is under it, `cd /tmp/work && rm -rf
 build` is ordinary scratch cleanup, and `cd build && rm -rf ..` is still refused
 — it would need authority over everything next to the build directory. A command
 the gate cannot place (`cd $WORK && rm -rf build`) is still allowed once or not
@@ -25,5 +25,5 @@ at all.
 
 Core API: `checkDangerousCommand` takes `scratchRoots` instead of a
 `scratchScope`, plus `home` so a literal `cd ~/work` can be placed, and offers
-the directory for a prompt with `grantOfferForCommand()`; `grantOfferFor`,
-`deleteTargetsFor` and `commandIsPlaceable` are gone.
+the directories a prompt may grant for with `grantOffersForCommand()`;
+`grantOfferFor`, `deleteTargetsFor` and `commandIsPlaceable` are gone.

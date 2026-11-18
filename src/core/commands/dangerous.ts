@@ -5,10 +5,10 @@ import {
   type CommandClassKey,
   type CommandGrant,
   commandClassKey,
-  commandGrantCoversAny,
-  commonAncestorOf,
-  grantDirectoryFor,
+  commandGrantsCover,
+  grantCoversDirectory,
   grantTargetsFor,
+  impactedDirectoriesFor,
   insideDirectory,
   normalizeGrantDirectory,
   STRUCTURAL_PATTERN,
@@ -70,12 +70,22 @@ export interface GrantOfferRequest {
   command: string;
   /** The class key of the match, as {@link commandClassKey} reports it. */
   classKey: CommandClassKey;
-  /** The directory the call started in. */
+  /**
+   * The directory the call started in. It is the starting point for the
+   * directories inside the command, and the one directory a delete grant is
+   * never offered for.
+   */
   cwd?: string;
   /** The user's home directory, for placing a `cd ~/work`. */
   home?: string;
   /** Configured scratch roots; relative ones are placed per command. */
   scratchRoots?: readonly string[];
+  /**
+   * Grants the user already holds. A directory one of them covers is not offered
+   * again, so a repeated delete asks only for the directories still unanswered
+   * for.
+   */
+  grants?: readonly CommandGrant[];
 }
 
 export interface DangerousCommandCheckOptions {
@@ -490,7 +500,7 @@ function matchBuiltinDangerous(
     if (scope?.grants) {
       const classKey = commandClassKey(match);
       if (
-        commandGrantCoversAny(
+        commandGrantsCover(
           scope.grants,
           classKey,
           grantTargetsFor(classKey, words),
@@ -622,7 +632,7 @@ export function checkDangerousCommand({
       if (
         grants &&
         placed &&
-        commandGrantCoversAny(grants, commandClassKey(match), [], placed.final)
+        commandGrantsCover(grants, commandClassKey(match), [], placed.final)
       ) {
         continue;
       }
@@ -634,26 +644,32 @@ export function checkDangerousCommand({
 }
 
 /**
- * The directory a prompt may offer a grant for, given the command the gate
+ * The directories a prompt may offer a grant for, given the command the gate
  * flagged and the class it flagged it as.
  *
  * The offer is about the flagged element, not about the whole command line: the
- * targets of each recursive force delete in it are placed in the directory that
- * delete itself runs in, which is what a `cd` at the front of a compound command
- * establishes. A grant is standing authority over everything inside a directory,
- * so a directory is only offered when the command was already working in it, or
- * when it sits inside a scratch root the config declares. A delete that climbs
- * out of the directory it runs in would need authority over its parent —
- * everything next to the thing being deleted — so it is allowed once or not at
- * all, never granted.
+ * targets of each recursive force delete in it name the directories that delete
+ * impacts, placed in the directory that delete itself runs in, which is what a
+ * `cd` at the front of a compound command establishes. A grant is standing
+ * authority over the directory it names and what is under it, so each impacted
+ * directory is asked for on its own — `rm -rf build out` is two grants, not one
+ * grant over the directory holding both. A directory a grant already covers is
+ * left out of the offer, so a repeated delete asks only for what is still
+ * unanswered for. A directory is only offered when the
+ * delete was already working in it, or it sits inside a scratch root the config
+ * declares. A delete that climbs out of the directory it runs in would need
+ * authority over everything next to the thing being deleted, and a delete of the
+ * directory the call started in would be a grant over the whole project: both are
+ * allowed once or not at all, never granted.
  */
-export function grantOfferForCommand({
+export function grantOffersForCommand({
   command,
   classKey,
   cwd,
   home,
   scratchRoots = [],
-}: GrantOfferRequest): string | undefined {
+  grants = [],
+}: GrantOfferRequest): string[] | undefined {
   let ast: Program | undefined;
   try {
     ast = parse(command, { recoverErrors: true }).ast;
@@ -663,60 +679,79 @@ export function grantOfferForCommand({
   if (!ast) return undefined;
 
   const placed = placeCommands(ast, cwd, home);
-  /** Each directory a grant would have to cover, and where that command runs. */
-  const required: { directory: string; cwd: WorkingDirectory }[] = [];
+  const started = absoluteOrUndefined(cwd);
 
-  if (classKey === builtinClassKey(RECURSIVE_FORCE_DELETE)) {
-    let unnameable = false;
-    walkCommands(
-      ast,
-      (cmd) => {
-        if (!cmd) return false;
-        const words = (cmd.words ?? []).map(wordToString);
-        if (
-          matchBuiltinDangerous(words)?.description !== RECURSIVE_FORCE_DELETE
-        ) {
-          return false;
-        }
-        const at = placed.directories.get(cmd);
-        const directory = grantDirectoryFor(deleteOperands(words), at);
-        if (!directory) {
-          unnameable = true;
-          return true;
-        }
-        required.push({ directory, cwd: at });
-        return false;
-      },
-      { includeSubstitutions: true },
-    );
-    if (unnameable || required.length === 0) return undefined;
-  } else {
+  if (classKey !== builtinClassKey(RECURSIVE_FORCE_DELETE)) {
     // A class with no paths of its own is granted where its command runs.
     const directory = normalizeGrantDirectory(placed.final);
-    if (!directory) return undefined;
-    required.push({ directory, cwd: placed.final });
+    return directory ? [directory] : undefined;
   }
 
-  const candidate = commonAncestorOf(required.map((entry) => entry.directory));
-  if (!candidate) return undefined;
-
-  const offered = required.every((entry) =>
-    acceptableOffer(entry, candidate, scratchRoots),
+  /** Each directory a flagged delete impacts, and where that delete runs. */
+  const impacted: { directory: string; cwd: WorkingDirectory }[] = [];
+  let unnameable = false;
+  walkCommands(
+    ast,
+    (cmd) => {
+      if (!cmd) return false;
+      const words = (cmd.words ?? []).map(wordToString);
+      if (
+        matchBuiltinDangerous(words)?.description !== RECURSIVE_FORCE_DELETE
+      ) {
+        return false;
+      }
+      const at = placed.directories.get(cmd);
+      const directories = impactedDirectoriesFor(deleteOperands(words), at);
+      if (!directories) {
+        unnameable = true;
+        return true;
+      }
+      for (const directory of directories) {
+        impacted.push({ directory, cwd: at });
+      }
+      return false;
+    },
+    { includeSubstitutions: true },
   );
+  if (unnameable || impacted.length === 0) return undefined;
 
-  return offered ? candidate : undefined;
+  // Every impacted directory has to be askable or none is: an answer that covers
+  // part of a delete and leaves the rest flagged is not the answer the user was
+  // shown.
+  if (
+    !impacted.every((entry) => acceptableOffer(entry, started, scratchRoots))
+  ) {
+    return undefined;
+  }
+
+  const offered = new Set<string>();
+  for (const entry of impacted) {
+    // A directory an earlier answer already covers is not asked for twice.
+    if (
+      grants.some((grant) =>
+        grantCoversDirectory(grant, classKey, entry.directory, entry.cwd),
+      )
+    ) {
+      continue;
+    }
+    offered.add(entry.directory);
+  }
+  return [...offered].sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Whether a directory is a fair thing to ask for: the delete was already working
+ * in it, or it sits inside a declared scratch root. Never the directory the call
+ * started in — that is the whole project, and the ask is for one directory the
+ * delete hits.
+ */
 function acceptableOffer(
   entry: { directory: string; cwd: WorkingDirectory },
-  candidate: string,
+  started: string | undefined,
   scratchRoots: readonly string[],
 ): boolean {
-  if (entry.cwd && insideDirectory(candidate, entry.cwd)) return true;
+  if (started && entry.directory === started) return false;
+  if (entry.cwd && insideDirectory(entry.directory, entry.cwd)) return true;
   const scratch = resolveScratchRoots(scratchRoots, entry.cwd);
-  return scratch.some(
-    (root) =>
-      insideDirectory(candidate, root) &&
-      insideDirectory(entry.directory, root),
-  );
+  return scratch.some((root) => insideDirectory(entry.directory, root));
 }

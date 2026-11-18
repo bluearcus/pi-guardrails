@@ -190,7 +190,7 @@ export function decide(
       return {
         verdict: "block",
         code: "blocked-out-of-scope",
-        reason: `outside what you asked for, ${impactText}`,
+        reason: `not covered by your request, ${impactText}`,
         facts,
       };
     }
@@ -213,7 +213,7 @@ export function decide(
       return {
         verdict: "allow",
         code: "approved-unrequested",
-        reason: `your request does not name this, but ${impactText} is trivially reversible`,
+        reason: `your request does not name this, but ${impactText} is easy to undo`,
         facts,
       };
     }
@@ -229,7 +229,7 @@ export function decide(
     return {
       verdict: "ask",
       code: "escalate-low-confidence",
-      reason: `leaned out of scope, but only ${percent(authorization.probability)} confident`,
+      reason: `your request probably does not cover this, but only ${percent(authorization.probability)} sure`,
       facts,
     };
   }
@@ -238,7 +238,7 @@ export function decide(
     return {
       verdict: "ask",
       code: "escalate-insufficient-context",
-      reason: `not enough context to judge (sufficiency ${percent(sufficiency)})`,
+      reason: `not enough of your request on hand to judge this (${percent(sufficiency)})`,
       facts,
     };
   }
@@ -247,7 +247,7 @@ export function decide(
     return {
       verdict: "ask",
       code: "escalate-destructive",
-      reason: `in scope, but ${impactText} is at or above the destructive threshold`,
+      reason: `your request covers this, but ${impactText} is hard to undo`,
       facts,
     };
   }
@@ -259,7 +259,7 @@ export function decide(
     return {
       verdict: "allow",
       code: "approved",
-      reason: `in scope, ${impactText}`,
+      reason: `your request covers this, ${impactText}`,
       facts,
     };
   }
@@ -267,7 +267,7 @@ export function decide(
   return {
     verdict: "ask",
     code: "escalate-low-confidence",
-    reason: `leaned in scope, but not confidently enough (${percent(Math.min(sufficiency, authorization.probability))})`,
+    reason: `your request probably covers this, but only ${percent(Math.min(sufficiency, authorization.probability))} sure`,
     facts,
   };
 }

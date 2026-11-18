@@ -10,12 +10,14 @@ import {
   describeCommandClass,
   describeGrant,
   describeGrantDirectory,
+  describeGrantOffer,
+  describeGrants,
   findGrantScope,
-  grantCandidateFor,
+  grantCandidatesFor,
   isCommandAllowed,
   isGrantTooBroad,
   removeCommandGrant,
-  saveCommandGrant,
+  saveCommandGrants,
 } from "./grants";
 
 /** The resolved config the grant helpers read, replaced per test. */
@@ -47,79 +49,109 @@ function mockResolvedConfig(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("grantCandidateFor", () => {
+describe("grantCandidatesFor", () => {
   beforeEach(() => {
     vol.reset();
   });
 
-  it("names the class and the directory the action happens in", () => {
+  it("names the class and the directory the delete impacts", () => {
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf build", "/home/mike/project"),
-    ).toEqual({
-      class: DELETE_CLASS,
-      directory: "/home/mike/project",
-    });
+      grantCandidatesFor(DELETE_CLASS, "rm -rf build", "/home/mike/project"),
+    ).toEqual([{ class: DELETE_CLASS, directory: "/home/mike/project/build" }]);
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf .layout", "/home/mike/pro"),
-    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/pro" });
+      grantCandidatesFor(DELETE_CLASS, "rm -rf .layout", "/home/mike/pro"),
+    ).toEqual([{ class: DELETE_CLASS, directory: "/home/mike/pro/.layout" }]);
   });
 
-  it("names a scratch root for a delete inside it", () => {
+  it("names every directory the delete impacts, one grant each", () => {
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf /tmp/build", "/home/mike/pro", [
+      grantCandidatesFor(
+        DELETE_CLASS,
+        "rm -rf build out tests",
+        "/home/mike/project",
+      ),
+    ).toEqual([
+      { class: DELETE_CLASS, directory: "/home/mike/project/build" },
+      { class: DELETE_CLASS, directory: "/home/mike/project/out" },
+      { class: DELETE_CLASS, directory: "/home/mike/project/tests" },
+    ]);
+  });
+
+  it("names the directory a delete inside a scratch root hits", () => {
+    expect(
+      grantCandidatesFor(DELETE_CLASS, "rm -rf /tmp/build", "/home/mike/pro", [
         "/tmp",
       ]),
-    ).toEqual({ class: DELETE_CLASS, directory: "/tmp" });
+    ).toEqual([{ class: DELETE_CLASS, directory: "/tmp/build" }]);
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf out", "/home/mike/pro", ["."]),
-    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/pro" });
+      grantCandidatesFor(DELETE_CLASS, "rm -rf out", "/home/mike/pro", ["."]),
+    ).toEqual([{ class: DELETE_CLASS, directory: "/home/mike/pro/out" }]);
   });
 
   it("offers no grant over the tree around the working directory", () => {
     // Deleting the parent would need a grant over everything next to it.
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf ..", "/home/mike/project/build"),
-    ).toBeUndefined();
+      grantCandidatesFor(DELETE_CLASS, "rm -rf ..", "/home/mike/project/build"),
+    ).toEqual([]);
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "rm -rf /home/mike/project/sub/build",
         "/home/mike/project/build",
       ),
-    ).toBeUndefined();
+    ).toEqual([]);
+  });
+
+  it("offers no grant over the directory the call started in", () => {
+    // That grant is authority over the whole project, which is never what the
+    // prompt is asking for.
+    for (const command of [
+      "rm -rf .",
+      "rm -rf /home/mike/project",
+      "rm -rf $BDIR",
+    ]) {
+      expect(
+        grantCandidatesFor(DELETE_CLASS, command, "/home/mike/project"),
+        command,
+      ).toEqual([]);
+    }
   });
 
   it("names the directory a compound command works in", () => {
     // The flagged delete is inside the command; the `cd` in front of it says
-    // where it happens, so that is the directory the grant has to name.
+    // where it happens, so that is where its target sits.
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "cd /work/follow9/build && make && rm -rf $BDIR",
         "/workspace",
       ),
-    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9/build" });
+    ).toEqual([{ class: DELETE_CLASS, directory: "/work/follow9/build" }]);
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "cd /work/follow9/build && make clean && rm -rf out/deep",
         "/workspace",
       ),
-    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9/build/out" });
+    ).toEqual([
+      { class: DELETE_CLASS, directory: "/work/follow9/build/out/deep" },
+    ]);
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "cd /work/follow9 && make && rm -rf build",
         "/workspace",
       ),
-    ).toEqual({ class: DELETE_CLASS, directory: "/work/follow9" });
+    ).toEqual([{ class: DELETE_CLASS, directory: "/work/follow9/build" }]);
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "cd build && rm -rf out",
         "/home/mike/project",
       ),
-    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/project/build" });
+    ).toEqual([
+      { class: DELETE_CLASS, directory: "/home/mike/project/build/out" },
+    ]);
   });
 
   it("offers nothing when the compound command does not say where it works", () => {
@@ -129,8 +161,9 @@ describe("grantCandidateFor", () => {
       "cd /work/build && rm -rf ..",
     ]) {
       expect(
-        grantCandidateFor(DELETE_CLASS, command, "/home/mike/project"),
-      ).toBeUndefined();
+        grantCandidatesFor(DELETE_CLASS, command, "/home/mike/project"),
+        command,
+      ).toEqual([]);
     }
   });
 
@@ -153,48 +186,106 @@ describe("grantCandidateFor", () => {
     ).toBeUndefined();
   });
 
-  it("names the working directory for a target it cannot place", () => {
+  it("names the working directory for a target the command moved into", () => {
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf $BDIR", "/home/mike/pro"),
-    ).toEqual({ class: DELETE_CLASS, directory: "/home/mike/pro" });
+      grantCandidatesFor(
+        DELETE_CLASS,
+        "cd build && rm -rf $BDIR",
+        "/home/mike/pro",
+      ),
+    ).toEqual([{ class: DELETE_CLASS, directory: "/home/mike/pro/build" }]);
     expect(
-      grantCandidateFor("pattern:mkfs.", "mkfs.ext4 $DEV", "/mnt/usb"),
-    ).toEqual({ class: "pattern:mkfs.", directory: "/mnt/usb" });
+      grantCandidatesFor("pattern:mkfs.", "mkfs.ext4 $DEV", "/mnt/usb"),
+    ).toEqual([{ class: "pattern:mkfs.", directory: "/mnt/usb" }]);
   });
 
-  it("offers nothing when the action spans directories", () => {
+  it("offers a grant per directory when a delete spans several", () => {
     expect(
-      grantCandidateFor(
+      grantCandidatesFor(
         DELETE_CLASS,
         "rm -rf /home/mike/Sync/build /tmp/build",
         "/home/mike",
+        ["/tmp"],
       ),
-    ).toBeUndefined();
+    ).toEqual([
+      { class: DELETE_CLASS, directory: "/home/mike/Sync/build" },
+      { class: DELETE_CLASS, directory: "/tmp/build" },
+    ]);
+  });
+
+  it("offers nothing when one spanned directory is not askable", () => {
+    // /tmp/build is outside the directory the delete runs in and outside every
+    // scratch root, so no part of this command can be granted.
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf $BDIR", undefined),
-    ).toBeUndefined();
+      grantCandidatesFor(
+        DELETE_CLASS,
+        "rm -rf build /tmp/build",
+        "/home/mike/Sync",
+      ),
+    ).toEqual([]);
+    expect(grantCandidatesFor(DELETE_CLASS, "rm -rf $BDIR", undefined)).toEqual(
+      [],
+    );
   });
 
   it("offers nothing whose directory is the home directory itself", () => {
     vi.stubEnv("HOME", "/home/mike");
     expect(
-      grantCandidateFor(DELETE_CLASS, "rm -rf /home/mike/build", "/tmp"),
-    ).toBeUndefined();
+      grantCandidatesFor(DELETE_CLASS, "rm -rf /home/mike/build", "/tmp"),
+    ).toEqual([]);
+    // Even over a scratch root, the home directory itself is never granted.
+    expect(
+      grantCandidatesFor(DELETE_CLASS, "rm -rf /home/mike/*", "/tmp", [
+        "/home/mike",
+      ]),
+    ).toEqual([]);
     vi.unstubAllEnvs();
   });
 });
 
-describe("describeGrant", () => {
-  it("spells a grant as class under directory", () => {
+describe("describeGrant and describeGrants", () => {
+  it("spells a delete grant as the directory it deletes", () => {
     expect(describeGrant({ class: DELETE_CLASS, directory: "/tmp/work" })).toBe(
-      "recursive force delete under /tmp/work",
+      "recursive force delete of /tmp/work",
     );
+    expect(
+      describeGrant({ class: DELETE_CLASS, directory: "/tmp/work/build" }),
+    ).toBe("recursive force delete of /tmp/work/build");
+  });
+
+  it("spells a grant for a class that only runs somewhere as under it", () => {
     expect(
       describeGrant({
         class: "pattern:docker run --privileged",
         directory: "/srv",
       }),
     ).toBe("docker run --privileged under /srv");
+  });
+
+  it("lists every directory an answer covers, naming the class once", () => {
+    expect(
+      describeGrants([
+        { class: DELETE_CLASS, directory: "/home/mike/project/build" },
+        { class: DELETE_CLASS, directory: "/home/mike/project/out" },
+      ]),
+    ).toBe("recursive force delete of ~/project/build, ~/project/out");
+    expect(
+      describeGrants([
+        { class: DELETE_CLASS, directory: "/home/mike/project/build" },
+        { class: "pattern:mkfs.", directory: "/mnt/usb" },
+      ]),
+    ).toBe("recursive force delete of ~/project/build; mkfs. under /mnt/usb");
+  });
+
+  it("counts the directories in a label once they no longer fit", () => {
+    expect(
+      describeGrantOffer(
+        ["build", "out", "tests", "extra"].map((name) => ({
+          class: DELETE_CLASS,
+          directory: `/home/mike/project/${name}`,
+        })),
+      ),
+    ).toBe("recursive force delete of 4 directories");
   });
 
   it("collapses the home directory to ~", () => {
@@ -224,10 +315,10 @@ describe("isGrantTooBroad", () => {
   });
 });
 
-describe("saveCommandGrant", () => {
+describe("saveCommandGrants", () => {
   const grant: CommandGrant = {
     class: DELETE_CLASS,
-    directory: "/home/mike/project",
+    directory: "/home/mike/project/build",
   };
 
   beforeEach(() => {
@@ -236,18 +327,18 @@ describe("saveCommandGrant", () => {
     vi.mocked(configLoader.getScopePath).mockReturnValue("/tmp/scope.json");
   });
 
-  it("adds the grant to the scope's own config", async () => {
+  it("adds the grants to the scope's own config", async () => {
     vi.mocked(configLoader.getRawConfig).mockReturnValue({
       version: "0.16.2",
       pathAccess: { mode: "ask" },
       permissionGate: { requireConfirmation: true },
     });
 
-    const saved = await saveCommandGrant(grant, "local");
+    const saved = await saveCommandGrants([grant], "local");
     expect(saved).toEqual({
       scope: "local",
       path: "/tmp/scope.json",
-      added: true,
+      added: [grant],
     });
 
     const saved_ = vi.mocked(configLoader.save).mock.calls[0]?.[1] as {
@@ -261,6 +352,20 @@ describe("saveCommandGrant", () => {
     expect(saved_.permissionGate.grants).toEqual([grant]);
   });
 
+  it("writes one entry per directory an answer covers", async () => {
+    const others: CommandGrant[] = [
+      { class: DELETE_CLASS, directory: "/home/mike/project/out" },
+      { class: DELETE_CLASS, directory: "/home/mike/project/tests" },
+    ];
+
+    const saved = await saveCommandGrants([grant, ...others], "local");
+    expect(saved.added).toHaveLength(3);
+    const written = vi.mocked(configLoader.save).mock.calls[0]?.[1] as {
+      permissionGate: { grants: CommandGrant[] };
+    };
+    expect(written.permissionGate.grants).toEqual([grant, ...others]);
+  });
+
   it("keeps grants already in the scope", async () => {
     vi.mocked(configLoader.getRawConfig).mockReturnValue({
       permissionGate: {
@@ -268,7 +373,7 @@ describe("saveCommandGrant", () => {
       },
     });
 
-    await saveCommandGrant(grant, "memory");
+    await saveCommandGrants([grant], "memory");
     const written = vi.mocked(configLoader.save).mock.calls[0]?.[1] as {
       permissionGate: { grants: CommandGrant[] };
     };
@@ -278,14 +383,31 @@ describe("saveCommandGrant", () => {
     ]);
   });
 
-  it("does not save the same grant twice", async () => {
+  it("does not save a grant the scope already holds", async () => {
     vi.mocked(configLoader.getRawConfig).mockReturnValue({
       permissionGate: { grants: [grant] },
     });
 
-    const saved = await saveCommandGrant(grant, "global");
-    expect(saved.added).toBe(false);
+    const saved = await saveCommandGrants([grant], "global");
+    expect(saved.added).toEqual([]);
     expect(vi.mocked(configLoader.save)).not.toHaveBeenCalled();
+  });
+
+  it("writes only what is missing when the scope holds part of the answer", async () => {
+    vi.mocked(configLoader.getRawConfig).mockReturnValue({
+      permissionGate: { grants: [grant] },
+    });
+
+    const other: CommandGrant = {
+      class: DELETE_CLASS,
+      directory: "/home/mike/project/out",
+    };
+    const saved = await saveCommandGrants([grant, other], "global");
+    expect(saved.added).toEqual([other]);
+    const written = vi.mocked(configLoader.save).mock.calls[0]?.[1] as {
+      permissionGate: { grants: CommandGrant[] };
+    };
+    expect(written.permissionGate.grants).toEqual([grant, other]);
   });
 });
 
@@ -359,7 +481,6 @@ describe("findGrantScope", () => {
     expect(findGrantScope(grant)).toEqual({
       scope: "global",
       path: "/tmp/scope.json",
-      added: false,
     });
   });
 
@@ -381,11 +502,7 @@ describe("findGrantScope", () => {
 
   it("reports memory when no config file holds it", () => {
     vi.mocked(configLoader.getRawConfig).mockReturnValue(null);
-    expect(findGrantScope(grant)).toEqual({
-      scope: "memory",
-      path: null,
-      added: false,
-    });
+    expect(findGrantScope(grant)).toEqual({ scope: "memory", path: null });
   });
 });
 

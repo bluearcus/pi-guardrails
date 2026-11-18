@@ -22,6 +22,7 @@ import {
   GUARDRAILS_PROMPT_OPENED_EVENT,
   type GuardrailsPromptOpenedPayload,
 } from "../../src/shared/events";
+import { answerFor } from "../../tests/utils/prompt-answers";
 import permissionGate from "./index";
 
 function makeConfig(overrides: Record<string, unknown> = {}): ResolvedConfig {
@@ -71,17 +72,20 @@ function registeredToolCallHandler(pi: DeepMocked<ExtensionAPI>) {
 const WORKING_DIR = "/home/mike/project";
 
 function createCtx(overrides: PartialFuncReturn<ExtensionContext> = {}) {
+  const { ui, ...rest } = overrides;
+  const { custom, ...uiRest } = ui ?? {};
   return createMock<ExtensionContext>({
     hasUI: true,
     mode: "tui",
     cwd: WORKING_DIR,
     ui: {
-      custom: vi.fn().mockResolvedValue(undefined),
+      custom: answerFor(custom) ?? vi.fn().mockResolvedValue(undefined),
       select: vi.fn().mockResolvedValue(undefined),
       notify: vi.fn(),
+      ...uiRest,
     },
     abort: vi.fn(),
-    ...overrides,
+    ...rest,
   });
 }
 
@@ -320,7 +324,7 @@ describe("permissionGate extension hook", () => {
     expect(ctx.abort).toHaveBeenCalledTimes(1);
   });
 
-  it("RPC fallback title shows the command, indented on every line", async () => {
+  it("RPC fallback title shows the command and what a grant would cover", async () => {
     assert(toolCallHandler, "tool_call handler should be registered");
 
     const select = vi.fn().mockResolvedValue("Deny");
@@ -335,7 +339,7 @@ describe("permissionGate extension hook", () => {
 
     const [title] = select.mock.calls[0] ?? [];
     expect(title).toBe(
-      "Dangerous command: test danger\n\n    dangerous-cmd \\\n      --force",
+      "Dangerous command: test danger\n\n    dangerous-cmd \\\n      --force\n\nA grant covers dangerous-cmd under ~/project only. Anywhere else still asks.",
     );
   });
 
@@ -373,7 +377,7 @@ describe("permissionGate extension hook", () => {
     });
   });
 
-  it("offers no grant when no directory covers the action", async () => {
+  it("offers no grant when one impacted directory is not askable", async () => {
     assert(toolCallHandler, "tool_call handler should be registered");
     vi.mocked(configLoader.getConfig).mockReturnValue(
       makeConfig({
@@ -394,11 +398,43 @@ describe("permissionGate extension hook", () => {
         type: "tool_call",
         toolCallId: "spans-call",
         toolName: "bash",
-        input: { command: "rm -rf /home/mike/project/a /tmp/b" },
+        input: { command: "rm -rf /home/mike/project/a /home/mike/Sync/b" },
       } satisfies BashToolCallEvent,
       ctx,
     );
 
+    const [, options] = select.mock.calls[0] ?? [];
+    expect(options).toEqual(["Allow once", "Deny", "Decline and stop"]);
+  });
+
+  it("offers no grant for a delete that names no directory of its own", async () => {
+    assert(toolCallHandler, "tool_call handler should be registered");
+    vi.mocked(configLoader.getConfig).mockReturnValue(
+      makeConfig({
+        patterns: [
+          { pattern: "rm -rf", description: "recursive force delete" },
+        ],
+        useBuiltinMatchers: true,
+      }),
+    );
+
+    const select = vi.fn().mockResolvedValue("Deny");
+    const ctx = createCtx({
+      cwd: WORKING_DIR,
+      ui: { custom: vi.fn().mockResolvedValue(undefined), select },
+    });
+    await toolCallHandler(
+      {
+        type: "tool_call",
+        toolCallId: "unplaced-call",
+        toolName: "bash",
+        input: { command: "rm -rf $BDIR" },
+      } satisfies BashToolCallEvent,
+      ctx,
+    );
+
+    // The only directory it could be granted for is the one the call started in,
+    // which is the whole project, so the prompt offers no grant.
     const [, options] = select.mock.calls[0] ?? [];
     expect(options).toEqual(["Allow once", "Deny", "Decline and stop"]);
   });

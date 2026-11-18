@@ -1,6 +1,7 @@
 import { bindProjectConfig } from "@aliou/pi-utils-settings";
 import {
   type ExtensionAPI,
+  type ExtensionContext,
   isToolCallEventType,
 } from "@earendil-works/pi-coding-agent";
 import { checkAction } from "../../src/core";
@@ -24,22 +25,54 @@ import {
   setupLegacyPromptEventAlias,
 } from "../../src/shared/events";
 import {
+  type CommandGrant,
   commandClassKey,
   describeGrant,
-  grantCandidateFor,
+  describeGrantOffer,
+  grantCandidatesFor,
   isCommandAllowed,
-  saveCommandGrant,
+  saveCommandGrants,
 } from "./grants";
 import {
   createPermissionGateConfirmComponent,
+  decisionForAnswer,
+  decisionForChoices,
   enabledPermissionGatePromptOptions,
-  type PermissionGateConfirmResult,
+  type GrantChoice,
+  grantChoiceOptions,
+  type PermissionGateDecision,
+  permissionGateGrantNote,
 } from "./prompt";
 import {
   createPermissionGateRule,
   formatAutoDenyReason,
   matchCommandPattern,
 } from "./rules";
+
+/**
+ * The per-directory answers as a sequence of plain selects, for a session with no
+ * custom component: one question per directory, so granting one and refusing
+ * another is possible outside the TUI picker too. A question left unanswered is a
+ * refusal.
+ */
+async function chooseGrantsPerDirectory(
+  grants: readonly CommandGrant[],
+  alwaysEnabled: boolean,
+  ctx: ExtensionContext,
+): Promise<PermissionGateDecision> {
+  const choices: GrantChoice[] = [];
+  for (const grant of grants) {
+    const options = grantChoiceOptions(alwaysEnabled);
+    const selection = await ctx.ui.select(
+      describeGrant(grant),
+      options.map((option) => option.label),
+    );
+    choices.push(
+      options.find((option) => option.label === selection)?.choice ?? "refuse",
+    );
+  }
+  return decisionForChoices(grants, choices);
+}
 
 export default async function permissionGate(pi: ExtensionAPI) {
   await configLoader.load();
@@ -162,13 +195,14 @@ export default async function permissionGate(pi: ExtensionAPI) {
     }
 
     const classKey = commandClassKey(safety.metadata);
-    const grant = grantCandidateFor(
+    const grants = grantCandidatesFor(
       classKey,
       command,
       ctx.cwd,
       config.permissionGate.scratchDelete.roots,
+      config.permissionGate.grants,
     );
-    const grantLabel = grant ? describeGrant(grant) : "";
+    const grantLabel = grants.length > 0 ? describeGrantOffer(grants) : "";
     const alwaysEnabled =
       config.permissionGate.alwaysScope === "global" ||
       configLoader.getProjectState() === "trusted";
@@ -185,12 +219,12 @@ export default async function permissionGate(pi: ExtensionAPI) {
     });
     pi.events.emit(GUARDRAILS_PROMPT_OPENED_EVENT, promptOpened);
 
-    let result: PermissionGateConfirmResult;
+    let decision: PermissionGateDecision;
     try {
-      const customResult = await ctx.ui.custom<PermissionGateConfirmResult>(
+      const customResult = await ctx.ui.custom<PermissionGateDecision>(
         createPermissionGateConfirmComponent(command, safety.reason, {
           review,
-          grant,
+          grants,
           alwaysEnabled,
         }),
         {
@@ -205,7 +239,7 @@ export default async function permissionGate(pi: ExtensionAPI) {
         // RPC mode has no custom component support; fall back to a plain
         // select with the same options as the TUI prompt.
         const options = enabledPermissionGatePromptOptions(
-          grant,
+          grants,
           alwaysEnabled,
         );
         if (!alwaysEnabled) {
@@ -215,17 +249,25 @@ export default async function permissionGate(pi: ExtensionAPI) {
           );
         }
         const indentedCommand = command.replace(/^/gm, "    ");
+        // A select shows one line per option, so the directories an answer covers
+        // go in the message: a label naming three of them is not the whole ask.
         const selection = await ctx.ui.select(
           `Dangerous command: ${safety.reason}${
             review ? `\n${review}` : ""
-          }\n\n${indentedCommand}`,
+          }\n\n${indentedCommand}${
+            grants.length > 0 ? `\n\n${permissionGateGrantNote(grants)}` : ""
+          }`,
           options.map((option) => option.label),
         );
-        result =
+        const answer =
           options.find((option) => option.label === selection)?.result ??
           "deny";
+        decision =
+          answer === "choose"
+            ? await chooseGrantsPerDirectory(grants, alwaysEnabled, ctx)
+            : decisionForAnswer(answer, grants);
       } else {
-        result = customResult;
+        decision = customResult;
       }
     } finally {
       pi.events.emit(
@@ -234,28 +276,60 @@ export default async function permissionGate(pi: ExtensionAPI) {
       );
     }
 
-    if (result === "allow") return;
-    if (result === "allow-session" || result === "allow-always") {
-      if (!grant) return;
-      const scope =
-        result === "allow-session"
-          ? "memory"
-          : config.permissionGate.alwaysScope;
-      const saved = await saveCommandGrant(grant, scope);
+    // What the user chose to keep standing is saved whatever this command does.
+    // A session grant for the build directory is their answer for that directory
+    // even when a different directory made them block this command.
+    const saved: string[] = [];
+    const sessionGrants = decision.answers
+      .filter((answer) => answer.choice === "session")
+      .map((answer) => answer.grant);
+    if (sessionGrants.length > 0) {
+      const result = await saveCommandGrants(sessionGrants, "memory");
+      if (result.added.length > 0) {
+        saved.push(`${describeGrantOffer(result.added)} for this session`);
+      }
+    }
+    const alwaysGrants = alwaysEnabled
+      ? decision.answers
+          .filter((answer) => answer.choice === "always")
+          .map((answer) => answer.grant)
+      : [];
+    if (alwaysGrants.length > 0) {
+      const result = await saveCommandGrants(
+        alwaysGrants,
+        config.permissionGate.alwaysScope,
+      );
+      if (result.added.length > 0) {
+        saved.push(
+          `${describeGrantOffer(result.added)} saved to ${
+            result.path ?? config.permissionGate.alwaysScope
+          }`,
+        );
+      }
+    }
+
+    if (decision.outcome === "allow") {
       ctx.ui.notify(
-        saved.added
-          ? `Allowed ${grantLabel} ${
-              saved.path
-                ? `always — saved to ${saved.path}`
-                : "for this session"
-            }. Revoke it in /guardrails:settings → Permission Gate → Command grants.`
-          : `Allowed ${grantLabel}.`,
+        saved.length > 0
+          ? `Allowed ${grantLabel || "this command"} — ${saved.join(
+              "; ",
+            )}. Revoke them in /guardrails:settings → Permission Gate → Command grants.`
+          : `Allowed ${grantLabel || "this command"}.`,
         "info",
       );
       return;
     }
 
-    if (result === "stop") {
+    if (saved.length > 0) {
+      ctx.ui.notify(
+        `Blocked, but kept: ${saved.join(
+          "; ",
+        )}. Revoke them in /guardrails:settings → Permission Gate → Command grants.`,
+        "info",
+      );
+    }
+
+    if (decision.outcome === "stop") {
       const reason = "User declined and stopped dangerous command";
       emitActionBlocked(pi, {
         feature: "permissionGate",

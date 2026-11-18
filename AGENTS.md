@@ -21,15 +21,18 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   directory**: `permissionGate.grants` holds `{ class, directory }`, where
   `class` is `builtin:<matcher description>` or `pattern:<pattern>`
   (`commandClassKey()` in `src/core/commands/classes.ts` derives it from the
-  match) and `directory` is absolute, never `/` or the home directory. Coverage
-  is decided in core: `checkDangerousCommand` takes `grants` and `cwd` and drops
-  a match a grant covers, so a covered command never produces a risk event, a
-  prompt, or a delegate review — do not re-parse the command in the extension to
-  decide coverage. A recursive delete is covered only when every target sits
-  under the granted directory and none is that directory itself; a wildcard
-  target counts where its literal part sits (`/tmp/*` deletes inside `/tmp`,
-  `literalTargetDirectory()`); a target the shell fills in from its first word,
-  and any class with no path targets, only where that command ran.
+  match) and `directory` is absolute, never `/` or the home directory. For a
+  recursive delete that directory is **the directory the delete impacts** —
+  `rm -rf scratch` is a grant for `<cwd>/scratch`, not for the tree holding it.
+  Coverage is decided in core: `checkDangerousCommand` takes `grants` and `cwd`
+  and drops a match the grants cover, so a covered command never produces a risk
+  event, a prompt, or a delegate review — do not re-parse the command in the
+  extension to decide coverage. A delete is covered only when every target is a
+  granted directory or sits under it, and a delete of several directories is
+  covered only when each of them has its own grant (`commandGrantsCover()`);
+  a wildcard target counts where its literal part sits (`/tmp/*` deletes inside
+  `/tmp`, `literalTargetDirectory()`); a target the shell fills in from its first
+  word, and any class with no path targets, only where that command ran.
 - Every command in a program is placed in the directory the shell is in when it
   runs: `workingDirectoriesFor()` in `src/core/commands/working-directory.ts`
   follows the program in order. A literal `cd` or `pushd` moves the directory;
@@ -45,16 +48,35 @@ Uses pnpm. Package scripts are discoverable in `package.json`. In git worktrees,
   prompts, and the flagged delete has to be grantable where it actually runs.
   A command inside a command substitution is not placed at all (which of the
   enclosing commands carried it is not worth a parent chain), so it is excused
-  by nothing. A command whose deletes span directories no single grant covers is
-  never covered. What the prompt may *offer* is narrower than what a grant can cover:
-  `grantOfferForCommand()` names the flagged delete's own directory — the deepest
-  one covering every delete of that class in the command — and only when the
-  command was already working in it or it sits inside a declared scratch root.
-  A hand-written `permissionGate.grants` entry is coverage as stated, so keeping
-  an offer honest is the extension's job, not the checker's.
-  `saveCommandGrant()` merges into the target scope's own raw config because
-  `ConfigLoader.save()` replaces a scope wholesale, which would otherwise drop
-  everything else that scope held.
+  by nothing. Every target of a spanning delete needs a grant of its own. What
+  the prompt may *offer* is narrower than what a grant can cover:
+  `grantOffersForCommand()` returns every directory the flagged deletes of that
+  class impact — each one a separate ask, and only where the delete was already
+  working in it or it sits inside a declared scratch root, never the directory
+  the call started in, because that grant would be the whole project. A delete
+  whose target the shell fills in names no directory below the one it started in,
+  so it is offered nothing. A directory an existing grant of that class already
+  covers is left out of the offer (`grantCoversDirectory()`), so a repeated
+  delete asks only for what is still unanswered for. A hand-written
+  `permissionGate.grants` entry is
+  coverage as stated, so keeping an offer honest is the extension's job, not the
+  checker's. `saveCommandGrants()` merges into the target scope's own raw config
+  because `ConfigLoader.save()` replaces a scope wholesale, which would otherwise
+  drop everything else that scope held.
+- The permission-gate prompt answers **one directory at a time**. Its component
+  resolves with a `PermissionGateDecision`: an outcome for the command
+  (`allow` / `deny` / `stop`) plus an answer per impacted directory — `session`,
+  `always`, `once` (allowed now, no standing grant) or `refuse`. With more than
+  one directory the option list adds `c`, which opens a picker where `a`/`A`/`y`/`n`
+  answer the highlighted directory and `Tab` cycles it; with no custom component
+  the same answers are a sequence of selects, one per directory. A command is
+  atomic, so one refusal sets the outcome to `deny`, while the grants chosen for
+  the other directories are still saved — an answer for `build` is an answer for
+  `build` whatever happened to `out`. Keep that split: the decision is per
+  directory, the run is per command. Extension tests drive the real component
+  through `tests/utils/prompt-answers.ts` (`answerPrompt("deny")`,
+  `pressKeys(["c", "a", "n", "\r"])`) instead of stubbing a result, so a test
+  cannot claim an answer the prompt would not produce.
 - A recursive force delete whose every target sits inside `permissionGate.scratchDelete.roots` (default `/tmp`) is not flagged: that is the agent's own working data. The check is `src/core/commands/scratch.ts` and it applies only inside the built-in structural matcher loop — never to text fallback matching or to user-configured patterns — and it refuses wildcard and variable targets, the scratch root itself, paths through a symlink, and a relative target it cannot place: the command moved the directory with something it cannot resolve (`cd $WORK`, `cd -`, `popd`), or the delete sits in a body it cannot follow. Keep `scratchRoots` threaded from `createPermissionGateRule` into `checkDangerousCommand`, and place each delete in the directory that delete itself runs in (`workingDirectoriesFor()`) rather than the one the tool call started in.
 
 ## Documentation triggers

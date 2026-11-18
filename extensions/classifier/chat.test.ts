@@ -403,7 +403,7 @@ describe("resolveChatModel", () => {
 });
 
 describe("reviewWithChatModel", () => {
-  it("allows a confident in-scope review and keeps the explanation", async () => {
+  it("allows a confident review the request covers and keeps the explanation", async () => {
     const { registry, streamSimple, model } = registryWith(
       textMessage(
         JSON.stringify({
@@ -423,7 +423,7 @@ describe("reviewWithChatModel", () => {
       new AbortController().signal,
     );
     expect(run.decision.verdict).toBe("allow");
-    expect(run.decision.reason).toContain("in scope");
+    expect(run.decision.reason).toContain("your request covers this");
     expect(run.decision.reason).toContain("deletes a generated folder");
     expect(streamSimple).toHaveBeenCalledWith(
       { id: "gemini" },

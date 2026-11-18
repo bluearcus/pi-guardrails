@@ -6,11 +6,11 @@ export {
   builtinClassKey,
   commandClassKey,
   commandGrantCovers,
-  commandGrantCoversAny,
-  commonAncestorOf,
+  commandGrantsCover,
   describeCommandClass,
-  grantDirectoryFor,
+  grantCoversDirectory,
   grantTargetsFor,
+  impactedDirectoriesFor,
   insideDirectory,
   literalTargetDirectory,
   normalizeGrantDirectory,
@@ -31,7 +31,7 @@ export {
   checkDangerousCommand,
   compileCommandPattern,
   compileCommandPatterns,
-  grantOfferForCommand,
+  grantOffersForCommand,
   matchDangerousCommand,
 } from "./dangerous";
 export type { ScratchDeleteScope, ScratchDeleteVerdict } from "./scratch";

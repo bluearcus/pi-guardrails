@@ -39,11 +39,11 @@ function facts({
 const WITH_CONTEXT = { hasTaskContext: true };
 
 describe("decide", () => {
-  it("allows a confident, in-scope, low-impact action", () => {
+  it("allows a confident action the request covers", () => {
     expect(decide(facts(), WITH_CONTEXT)).toMatchObject({
       verdict: "allow",
       code: "approved",
-      reason: "in scope, impact 1.5/4",
+      reason: "your request covers this, impact 1.5/4",
     });
   });
 
@@ -107,14 +107,14 @@ describe("decide", () => {
     ).toBe("escalate-ambiguous");
   });
 
-  it("acts on an unrequested step whose effect is trivially reversible", () => {
+  it("acts on an unrequested step whose effect is easy to undo", () => {
     expect(
       decide(facts({ authorization: "unclear", impact: 1 }), WITH_CONTEXT),
     ).toMatchObject({
       verdict: "allow",
       code: "approved-unrequested",
       reason:
-        "your request does not name this, but impact 1.0/4 is trivially reversible",
+        "your request does not name this, but impact 1.0/4 is easy to undo",
     });
   });
 
@@ -145,7 +145,7 @@ describe("decide", () => {
     ).toBe("escalate-ambiguous");
   });
 
-  it("asks about an in-scope action at or above the destructive threshold", () => {
+  it("asks about an action the request covers that is hard to undo", () => {
     expect(decide(facts({ impact: 2.5 }), WITH_CONTEXT)).toMatchObject({
       verdict: "ask",
       code: "escalate-destructive",

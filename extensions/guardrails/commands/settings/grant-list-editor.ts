@@ -99,7 +99,7 @@ export class GrantListEditor implements Component {
       lines.push(
         this.options.theme.hint("  Enter: next · Esc: cancel"),
         this.options.theme.hint(
-          "  A grant covers that class under that directory only, never the directory itself.",
+          "  A grant covers that class for that directory, and what is under it — nowhere else.",
         ),
       );
       return lines;

@@ -704,7 +704,7 @@ export function registerGuardrailsSettings(
               id: "classifier.allowUnrequestedLowImpact",
               label: "Act on implied housekeeping",
               description:
-                "Let the reviewer run a step your request does not name when it judges the effect trivially reversible — clearing its own scratch or build data. off asks about anything the request does not clearly cover",
+                "Let the reviewer run a step your request does not name when it judges the effect easy to undo — clearing its own scratch or build data. off asks about anything the request does not clearly cover",
               currentValue:
                 scopedConfig.classifier?.allowUnrequestedLowImpact === undefined
                   ? `inherited: ${resolved.classifier.allowUnrequestedLowImpact ? "on" : "off"}`
@@ -802,7 +802,7 @@ export function registerGuardrailsSettings(
               id: "permissionGate.grants",
               label: "Command grants",
               description:
-                "Kinds of flagged command you allow inside one directory each, e.g. recursive force delete under a build directory. A grant never covers that directory itself, nor the same class anywhere else. Auto-deny patterns still block",
+                "Kinds of flagged command you allow, one directory each: a delete grant covers that directory and what is under it, so a build directory and the project around it are separate grants. The same class anywhere else still asks. Auto-deny patterns still block",
               currentValue: count("permissionGate.grants"),
               submenu: commandGrantListSubmenu,
             },

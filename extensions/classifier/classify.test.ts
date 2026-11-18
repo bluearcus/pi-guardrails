@@ -307,7 +307,7 @@ describe("runClassifier", () => {
         strategy: "fallback",
       });
       expect(answer?.verdict).toBe("allow");
-      expect(answer?.reason).toMatch(/^p\/good: in scope/);
+      expect(answer?.reason).toMatch(/^p\/good: your request covers this/);
       expect(answer?.details.runs.map((run) => run.model)).toEqual([
         "p/missing",
         "p/broken",
@@ -348,7 +348,7 @@ describe("runClassifier", () => {
       chat: { maxTokens: 512, reasoning: "off", instructions: "" },
     });
     expect(answer?.verdict).toBe("allow");
-    expect(answer?.reason).toContain("google/gemini: in scope");
+    expect(answer?.reason).toContain("google/gemini: your request covers this");
     expect(answer?.details.runs.map((run) => run.model)).toEqual([
       "typesafe/jev",
       "google/gemini",
